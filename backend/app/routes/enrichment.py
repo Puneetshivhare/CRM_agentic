@@ -8,12 +8,13 @@ Endpoints:
 """
 
 import logging
-from typing import Optional
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
+from app.auth import get_current_user
 from app.database import get_db
 from app.agents.research_agent import research_agent
 from app.agents.enrichment_agent import enrichment_agent
@@ -82,9 +83,9 @@ class ProspectEnrichmentStatusResponse(BaseModel):
 # ── Helper Functions ──────────────────────────────────────────────────
 
 
-def get_current_user_id(db: Session = Depends(get_db)) -> int:
-    """Extract user_id. For now, default to user_id=1 (TODO: JWT validation)."""
-    return 1
+def get_current_user_id(user: Annotated[dict, Depends(get_current_user)]) -> int:
+    """Extract user_id from validated JWT token."""
+    return user["user_id"]
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────
