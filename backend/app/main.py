@@ -31,6 +31,7 @@ from app.routes import auth as auth_router
 from app.routes import prospects as prospects_router
 from app.routes import enrichment as enrichment_router
 from app.routes import documents as documents_router
+from app.routes import companies as companies_router
 
 logger = logging.getLogger("agentic_crm")
 
@@ -97,6 +98,7 @@ app.include_router(auth_router.router)
 app.include_router(prospects_router.router)
 app.include_router(enrichment_router.router)
 app.include_router(documents_router.router)
+app.include_router(companies_router.router)
 
 
 # ── Health check ──────────────────────────────────────────────────────────────
