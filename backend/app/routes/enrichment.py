@@ -21,6 +21,7 @@ from app.agents.enrichment_agent import enrichment_agent
 from app.models.agent_execution import AgentExecution
 from app.models.prospect import Prospect
 from app.models.enrichment_event import EnrichmentEvent
+from sqlalchemy import desc
 
 logger = logging.getLogger("agentic_crm")
 router = APIRouter(prefix="/api/enrichment", tags=["enrichment"])
@@ -78,6 +79,33 @@ class ProspectEnrichmentStatusResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ExecutionListResponse(BaseModel):
+    """Agent execution for list display."""
+
+    execution_id: int
+    agent_type: str
+    status: str
+    prospect_id: Optional[int] = None
+    company_id: Optional[int] = None
+    duration_ms: Optional[int] = None
+    tokens_used: Optional[int] = None
+    confidence_score: Optional[float] = None
+    decision_description: Optional[str] = None
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+
+class PaginatedExecutionsResponse(BaseModel):
+    """Paginated list of agent executions."""
+
+    total: int
+    page: int
+    per_page: int
+    items: list[ExecutionListResponse]
 
 
 # ── Helper Functions ──────────────────────────────────────────────────
@@ -319,6 +347,47 @@ async def get_prospect_enrichment_status(
             status_code=500,
             detail=f"Failed to fetch prospect status: {str(e)}",
         )
+
+
+@router.get("/executions", response_model=PaginatedExecutionsResponse)
+async def list_agent_executions(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    agent_type: Optional[str] = Query(None, description="Filter by agent type"),
+    status: Optional[str] = Query(None, description="Filter by status"),
+    db: Session = Depends(get_db),
+    user_id: int = Depends(get_current_user_id),
+) -> PaginatedExecutionsResponse:
+    """
+    List recent agent executions for the current user.
+
+    Optionally filter by agent_type (ResearchAgent, EnrichmentAgent, MonitoringAgent)
+    or status (pending, running, success, failed).
+    """
+    query = db.query(AgentExecution).filter(AgentExecution.user_id == user_id)
+
+    if agent_type:
+        query = query.filter(AgentExecution.agent_type == agent_type)
+
+    if status:
+        query = query.filter(AgentExecution.status == status)
+
+    total = query.count()
+    executions = (
+        query.order_by(desc(AgentExecution.created_at))
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
+
+    items = [ExecutionListResponse.from_orm(e) for e in executions]
+
+    return PaginatedExecutionsResponse(
+        total=total,
+        page=page,
+        per_page=per_page,
+        items=items,
+    )
 
 
 # ── Helper Functions ──────────────────────────────────────────────────
