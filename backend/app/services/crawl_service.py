@@ -8,10 +8,13 @@ Responsibilities:
   - Return raw HTML + extracted text for Gemini processing
 """
 
+import asyncio
 import logging
 import re
 from typing import Optional
 
+import httpx
+from bs4 import BeautifulSoup
 from tenacity import (
     retry,
     stop_after_attempt,
@@ -68,33 +71,42 @@ class CrawlService:
         try:
             logger.info(f"Crawling {url}")
 
-            # TODO: Implement actual Crawl4AI call here
-            # from crawl4ai import AsyncWebCrawler
-            # crawler = AsyncWebCrawler()
-            # result = await crawler.arun(
-            #     url=url,
-            #     timeout=self.timeout_seconds,
-            #     use_light_panda=True,  # For JS rendering
-            # )
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                response = await client.get(url, follow_redirects=True)
+                response.raise_for_status()
 
-            # Stub response for now (to be replaced with real Crawl4AI)
-            result = {
-                "url": url,
-                "status_code": 200,
-                "title": f"Page from {url}",
-                "html": "<html><body>Stub content</body></html>",
-                "text": "Stub text content from the page",
-                "metadata": {
-                    "language": "en",
-                    "charset": "utf-8",
-                },
-            }
+                html = response.text
+                soup = BeautifulSoup(html, 'html.parser')
 
-            logger.info(f"Successfully crawled {url} ({len(result['text'])} chars)")
-            return result
+                # Extract title
+                title = soup.title.string if soup.title else "No title"
+
+                # Extract text (remove scripts/styles)
+                for script in soup(["script", "style"]):
+                    script.decompose()
+                text = soup.get_text(separator=' ', strip=True)
+                text = re.sub(r'\s+', ' ', text)
+
+                result = {
+                    "url": url,
+                    "status_code": response.status_code,
+                    "title": title,
+                    "html": html,
+                    "text": text[:5000],  # First 5000 chars for Gemini
+                    "metadata": {
+                        "language": response.headers.get("content-language", "unknown"),
+                        "charset": response.charset or "utf-8",
+                    },
+                }
+
+                logger.info(f"Successfully crawled {url} ({len(text)} chars)")
+                return result
 
         except asyncio.TimeoutError:
             logger.error(f"Timeout crawling {url} after {self.timeout_seconds}s")
+            raise
+        except httpx.HTTPStatusError as e:
+            logger.error(f"HTTP {e.response.status_code} crawling {url}")
             raise
         except Exception as e:
             logger.error(f"Error crawling {url}: {e}")

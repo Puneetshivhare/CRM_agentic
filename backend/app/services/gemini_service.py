@@ -70,11 +70,16 @@ class GeminiService:
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
             logger.warning("GEMINI_API_KEY not set — LLM calls will fail")
-
-        # TODO: Initialize actual Gemini client
-        # from google.generativeai import genai
-        # genai.configure(api_key=self.api_key)
-        # self.model = genai.GenerativeModel("gemini-2.5-flash")
+            self.model = None
+        else:
+            try:
+                import google.generativeai as genai
+                genai.configure(api_key=self.api_key)
+                self.model = genai.GenerativeModel("gemini-2.5-flash")
+                logger.info("Gemini client initialized successfully")
+            except Exception as e:
+                logger.error(f"Failed to initialize Gemini: {e}")
+                self.model = None
 
         self.token_count = 0
         self.cache = {}
@@ -140,32 +145,49 @@ Return JSON matching this schema:
 Only return valid JSON, no markdown.
 """
 
-            # TODO: Call actual Gemini API
-            # response = await self.model.generate_content_async(
-            #     prompt,
-            #     generation_config={
-            #         "response_mime_type": "application/json",
-            #         "response_schema": CompanyDataExtraction.model_json_schema(),
-            #     }
-            # )
-            # result_json = json.loads(response.text)
-
-            # Stub response for now
-            result_json = {
-                "company_name": f"Company from {domain}",
-                "website": domain,
-                "headcount": None,
-                "headcount_range": None,
-                "revenue_annual": None,
-                "funding_stage": None,
-                "latest_funding_date": None,
-                "headquarters_city": None,
-                "headquarters_country": None,
-                "industry": None,
-                "tech_stack": [],
-                "description": "Stub extraction",
-                "confidence": 0.3,
-            }
+            if not self.model:
+                logger.warning("Gemini model not available, returning stub")
+                result_json = {
+                    "company_name": f"Company from {domain}",
+                    "website": domain,
+                    "headcount": None,
+                    "headcount_range": None,
+                    "revenue_annual": None,
+                    "funding_stage": None,
+                    "latest_funding_date": None,
+                    "headquarters_city": None,
+                    "headquarters_country": None,
+                    "industry": None,
+                    "tech_stack": [],
+                    "description": "Stub extraction (Gemini unavailable)",
+                    "confidence": 0.1,
+                }
+            else:
+                try:
+                    response = self.model.generate_content(
+                        prompt,
+                        generation_config={
+                            "response_mime_type": "application/json",
+                        }
+                    )
+                    result_json = json.loads(response.text)
+                except Exception as e:
+                    logger.error(f"Gemini API call failed: {e}, using stub")
+                    result_json = {
+                        "company_name": f"Company from {domain}",
+                        "website": domain,
+                        "headcount": None,
+                        "headcount_range": None,
+                        "revenue_annual": None,
+                        "funding_stage": None,
+                        "latest_funding_date": None,
+                        "headquarters_city": None,
+                        "headquarters_country": None,
+                        "industry": None,
+                        "tech_stack": [],
+                        "description": f"Extraction failed: {str(e)}",
+                        "confidence": 0.0,
+                    }
 
             extraction = CompanyDataExtraction(**result_json)
             self.cache[cache_key] = extraction
@@ -225,19 +247,38 @@ Extract and return as JSON:
 Only return valid JSON.
 """
 
-            # TODO: Call actual Gemini API
-            result_json = {
-                "full_name": prospect_name,
-                "title": None,
-                "department": None,
-                "seniority": None,
-                "email": None,
-                "phone": None,
-                "location": None,
-                "linkedin_url": None,
-                "website_url": None,
-                "confidence": 0.2,
-            }
+            if not self.model:
+                logger.warning("Gemini model not available for prospect extraction")
+                result_json = {
+                    "full_name": prospect_name,
+                    "title": None,
+                    "department": None,
+                    "seniority": None,
+                    "email": None,
+                    "phone": None,
+                    "location": None,
+                    "linkedin_url": None,
+                    "website_url": None,
+                    "confidence": 0.1,
+                }
+            else:
+                try:
+                    response = self.model.generate_content(prompt)
+                    result_json = json.loads(response.text)
+                except Exception as e:
+                    logger.error(f"Prospect extraction failed: {e}")
+                    result_json = {
+                        "full_name": prospect_name,
+                        "title": None,
+                        "department": None,
+                        "seniority": None,
+                        "email": None,
+                        "phone": None,
+                        "location": None,
+                        "linkedin_url": None,
+                        "website_url": None,
+                        "confidence": 0.0,
+                    }
 
             extraction = ProspectDataExtraction(**result_json)
             self.cache[cache_key] = extraction
