@@ -1,0 +1,57 @@
+# Core Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-dotenv==1.0.0
+
+# Database & ORM
+sqlalchemy==2.0.23
+psycopg2-binary==2.9.9
+alembic==1.12.1
+pydantic==2.4.2
+pydantic-settings==2.0.3
+
+# Supabase (PostgreSQL hosted + optional auth)
+supabase==2.0.2
+
+# Authentication
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1  # passlib 1.7.4 compatibility; avoids bcrypt 4.1+ backend issues
+
+# Async & Jobs
+celery==5.3.4
+redis==5.0.1
+aiohttp==3.9.1
+
+# HTTP & APIs
+requests==2.31.0
+tenacity==8.2.3
+httpx==0.24.1  # Downgraded to match supabase constraint (supabase requires <0.25.0)
+
+# AI / LLM
+google-generativeai==0.3.2
+
+# Vector Store (Chroma for embeddings/RAG)
+chromadb==0.4.21
+
+# Web Scraping
+beautifulsoup4==4.12.2
+lxml==4.9.3
+
+# PDF Processing
+pypdf==4.0.0
+
+# Data Validation
+email-validator==2.1.0
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+
+# Monitoring & Logging
+python-json-logger==2.0.7
+prometheus-client==0.19.0
+
+# Utils
+python-multipart==0.0.6
+slowapi==0.1.9

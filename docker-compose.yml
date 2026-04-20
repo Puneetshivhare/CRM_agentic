@@ -1,0 +1,158 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Agentic CRM — Docker Compose (Local Development)
+#
+# CURRENT CONFIGURATION: Supabase PostgreSQL + Redis + Chroma
+#   - Database: Supabase (remote PostgreSQL)
+#   - Redis     → host 6380  (internal 6379)  ← avoids collision
+#   - Chroma    → host 8001  (internal 8000)  ← vector embeddings storage
+#   - Backend   → host 8001  (internal 8000)
+#
+# LEGACY CONFIGURATION: Local PostgreSQL (commented below — uncomment to revert)
+#   - Postgres  → host 5433  (internal 5432)
+#
+# To switch from Supabase back to local Postgres:
+#   1. Uncomment the postgres service below
+#   2. In backend service, change depends_on to: postgres (from chroma)
+#   3. In backend environment, use DATABASE_URL=postgresql://crm_user:${DB_PASSWORD}@postgres:5432/agentic_crm
+#   4. In app/database.py, uncomment legacy engine
+#   5. In app/config.py, uncomment legacy DATABASE_URL note
+#
+# All secrets come from .env file (see backend/.env.example)
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL 15 + pgvector (LOCAL) ──────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: agentic-crm-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: crm_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-crm_password}
+      POSTGRES_DB: agentic_crm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"   # host:container — use 5433 to avoid conflicts
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crm_user -d agentic_crm"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ── Redis 7 ──────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: agentic-crm-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6380:6379"   # host:container — use 6380 to avoid conflicts
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Chroma Vector Database ─────────────────────────────────────────────────
+  # Open source vector store for RAG embeddings (Phase 2)
+  # DISABLED: Temporarily disabled until startup issues fixed
+  # chroma:
+  #   image: chromadb/chroma:latest
+  #   container_name: agentic-crm-chroma
+  #   restart: unless-stopped
+  #   environment:
+  #     ANONYMIZED_TELEMETRY: "false"
+  #   ports:
+  #     - "8005:8000"   # host:container (changed from 8001 to avoid conflicts)
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 10s
+
+  # ── FastAPI Backend ───────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: agentic-crm-backend
+    restart: unless-stopped
+    environment:
+      # LOCAL: PostgreSQL
+      DATABASE_URL: postgresql://crm_user:${DB_PASSWORD:-crm_password}@postgres:5432/agentic_crm
+
+      # Redis (internal Docker hostname)
+      REDIS_URL: redis://redis:6379
+
+      # Vector store
+      CHROMA_HOST: chroma
+      CHROMA_PORT: 8000
+
+      # API keys
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+
+      # Supabase (optional, for future auth integration)
+      SUPABASE_URL: ${SUPABASE_URL:-}
+      SUPABASE_KEY: ${SUPABASE_KEY:-}
+
+      # JWT & Security
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_this_to_a_32_char_secret_key}
+      JWT_ALGORITHM: HS256
+      JWT_EXPIRE_MINUTES: 30
+
+      # App config
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+      ALLOWED_ORIGINS: http://localhost:3005
+      RATE_LIMIT_PER_MINUTE: 100
+      DAILY_GEMINI_TOKENS: 1000000
+      BCRYPT_ROUNDS: 12
+    ports:
+      - "8005:8000"  # host:container — backend listens on 8005 (nova uses 8000)
+    volumes:
+      # Hot-reload: mount entire backend so code, migrations, and config apply without rebuild
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── Next.js Frontend ───────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: agentic-crm-frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8005/api
+    ports:
+      - "3005:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+# ── Named volumes (persisted across container restarts) ───────────────────────
+volumes:
+  postgres_data:
+    name: agentic-crm-postgres-data
+  redis_data:
+    name: agentic-crm-redis-data
+  chroma_data:
+    name: agentic-crm-chroma-data
