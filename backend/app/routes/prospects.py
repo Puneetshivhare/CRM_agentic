@@ -15,10 +15,13 @@ import logging
 from io import StringIO
 from typing import Optional
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import and_, desc, or_
 from sqlalchemy.orm import Session
 
+from app.auth import get_current_user
 from app.database import get_db
 from app.models.prospect import Prospect
 from pydantic import BaseModel, EmailStr, Field
@@ -88,10 +91,9 @@ class PaginatedProspectsResponse(BaseModel):
 
 # ── Helper Functions ──────────────────────────────────────────────────────
 
-def get_current_user_id(db: Session = Depends(get_db)) -> int:
-    """Stub: Extract user_id from JWT token. For now, default to user_id=1."""
-    # TODO: Implement JWT validation with Supabase auth
-    return 1
+def get_current_user_id(user: Annotated[dict, Depends(get_current_user)]) -> int:
+    """Extract user_id from validated JWT token."""
+    return user["user_id"]
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────

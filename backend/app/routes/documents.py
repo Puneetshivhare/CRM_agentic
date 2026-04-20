@@ -9,12 +9,13 @@ Endpoints:
 """
 
 import logging
-from typing import Optional, List
+from typing import Annotated, Optional, List
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
+from app.auth import get_current_user
 from app.database import get_db
 from app.models.document import Document
 from app.models.prospect import Prospect
@@ -68,9 +69,9 @@ class DocumentListResponse(BaseModel):
 # ── Helper Functions ──────────────────────────────────────────────────
 
 
-def get_current_user_id(db: Session = Depends(get_db)) -> int:
-    """Extract user_id. For now, default to user_id=1 (TODO: JWT validation)."""
-    return 1
+def get_current_user_id(user: Annotated[dict, Depends(get_current_user)]) -> int:
+    """Extract user_id from validated JWT token."""
+    return user["user_id"]
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────
