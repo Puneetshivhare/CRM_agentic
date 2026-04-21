@@ -81,6 +81,11 @@ class EnrollRequest(BaseModel):
     prospect_ids: list[int] = Field(..., min_items=1)
 
 
+class EnrollResponse(BaseModel):
+    enrolled: int
+    status: str
+
+
 # ── Helper Functions ──────────────────────────────────────────────────
 
 def get_current_user_id(user: Annotated[dict, Depends(get_current_user)]) -> int:
@@ -216,7 +221,7 @@ async def delete_campaign(
     logger.info(f"Deleted campaign {campaign_id} for user {user_id}")
 
 
-@router.post("/{campaign_id}/enroll", response_model={"enrolled": int, "status": str})
+@router.post("/{campaign_id}/enroll", response_model=EnrollResponse)
 async def enroll_prospects(
     campaign_id: int,
     request: EnrollRequest,

@@ -12,6 +12,7 @@ Endpoints:
 
 import csv
 import logging
+from datetime import datetime
 from io import StringIO
 from typing import Optional
 
@@ -74,8 +75,8 @@ class ProspectResponse(ProspectBase):
     last_contacted_at: Optional[str] = None
     email_opens: int
     email_clicks: int
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

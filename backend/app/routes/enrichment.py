@@ -8,9 +8,10 @@ Endpoints:
 """
 
 import logging
+from datetime import datetime
 from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
@@ -55,8 +56,8 @@ class ExecutionStatusResponse(BaseModel):
     prospect_id: Optional[int]
     agent_type: str
     status: str
-    start_time: str
-    end_time: Optional[str]
+    start_time: datetime
+    end_time: Optional[datetime]
     duration_ms: Optional[int]
     tokens_used: Optional[int]
     error_message: Optional[str]
@@ -74,7 +75,7 @@ class ProspectEnrichmentStatusResponse(BaseModel):
     enrichment_confidence: float
     last_execution_id: Optional[int]
     last_execution_status: Optional[str]
-    last_execution_time: Optional[str]
+    last_execution_time: Optional[datetime]
     recent_events: int = Field(..., description="Count of recent enrichment events")
 
     class Config:
@@ -93,7 +94,7 @@ class ExecutionListResponse(BaseModel):
     tokens_used: Optional[int] = None
     confidence_score: Optional[float] = None
     decision_description: Optional[str] = None
-    created_at: str
+    created_at: datetime
 
     class Config:
         from_attributes = True
@@ -235,54 +236,45 @@ async def trigger_enrichment(
         )
 
 
-@router.get("/{execution_id}", response_model=ExecutionStatusResponse)
-async def get_execution_status(
-    execution_id: int,
+@router.get("/executions", response_model=PaginatedExecutionsResponse)
+async def list_agent_executions(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    agent_type: Optional[str] = Query(None, description="Filter by agent type"),
+    status: Optional[str] = Query(None, description="Filter by status"),
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
-) -> ExecutionStatusResponse:
+) -> PaginatedExecutionsResponse:
     """
-    Get status of an agent execution.
+    List recent agent executions for the current user.
 
-    Returns: execution details including status, duration, tokens, confidence.
+    Optionally filter by agent_type (ResearchAgent, EnrichmentAgent, MonitoringAgent)
+    or status (pending, running, success, failed).
     """
-    try:
-        execution = (
-            db.query(AgentExecution)
-            .filter(
-                AgentExecution.execution_id == execution_id,
-                AgentExecution.user_id == user_id,
-            )
-            .first()
-        )
+    query = db.query(AgentExecution).filter(AgentExecution.user_id == user_id)
 
-        if not execution:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Execution {execution_id} not found",
-            )
+    if agent_type:
+        query = query.filter(AgentExecution.agent_type == agent_type)
 
-        return ExecutionStatusResponse(
-            execution_id=execution.execution_id,
-            prospect_id=execution.prospect_id,
-            agent_type=execution.agent_type,
-            status=execution.status,
-            start_time=execution.start_time.isoformat() if execution.start_time else None,
-            end_time=execution.end_time.isoformat() if execution.end_time else None,
-            duration_ms=execution.duration_ms,
-            tokens_used=execution.tokens_used,
-            error_message=execution.error_message,
-            confidence_score=execution.confidence_score,
-        )
+    if status:
+        query = query.filter(AgentExecution.status == status)
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[EnrichmentAPI] Error fetching execution status: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch execution status: {str(e)}",
-        )
+    total = query.count()
+    executions = (
+        query.order_by(desc(AgentExecution.created_at))
+        .offset((page - 1) * per_page)
+        .limit(per_page)
+        .all()
+    )
+
+    items = [ExecutionListResponse.from_orm(e) for e in executions]
+
+    return PaginatedExecutionsResponse(
+        total=total,
+        page=page,
+        per_page=per_page,
+        items=items,
+    )
 
 
 @router.get("/status/{prospect_id}", response_model=ProspectEnrichmentStatusResponse)
@@ -333,9 +325,7 @@ async def get_prospect_enrichment_status(
             enrichment_confidence=prospect.enrichment_confidence,
             last_execution_id=latest_execution.execution_id if latest_execution else None,
             last_execution_status=latest_execution.status if latest_execution else None,
-            last_execution_time=latest_execution.created_at.isoformat()
-            if latest_execution
-            else None,
+            last_execution_time=latest_execution.created_at if latest_execution else None,
             recent_events=recent_events,
         )
 
@@ -349,45 +339,53 @@ async def get_prospect_enrichment_status(
         )
 
 
-@router.get("/executions", response_model=PaginatedExecutionsResponse)
-async def list_agent_executions(
-    page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
-    agent_type: Optional[str] = Query(None, description="Filter by agent type"),
-    status: Optional[str] = Query(None, description="Filter by status"),
+async def get_execution_status(
+    execution_id: int,
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
-) -> PaginatedExecutionsResponse:
+) -> ExecutionStatusResponse:
     """
-    List recent agent executions for the current user.
+    Get status of an agent execution.
 
-    Optionally filter by agent_type (ResearchAgent, EnrichmentAgent, MonitoringAgent)
-    or status (pending, running, success, failed).
+    Returns: execution details including status, duration, tokens, confidence.
     """
-    query = db.query(AgentExecution).filter(AgentExecution.user_id == user_id)
+    try:
+        execution = (
+            db.query(AgentExecution)
+            .filter(
+                AgentExecution.execution_id == execution_id,
+                AgentExecution.user_id == user_id,
+            )
+            .first()
+        )
 
-    if agent_type:
-        query = query.filter(AgentExecution.agent_type == agent_type)
+        if not execution:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Execution {execution_id} not found",
+            )
 
-    if status:
-        query = query.filter(AgentExecution.status == status)
+        return ExecutionStatusResponse(
+            execution_id=execution.execution_id,
+            prospect_id=execution.prospect_id,
+            agent_type=execution.agent_type,
+            status=execution.status,
+            start_time=execution.start_time,
+            end_time=execution.end_time,
+            duration_ms=execution.duration_ms,
+            tokens_used=execution.tokens_used,
+            error_message=execution.error_message,
+            confidence_score=execution.confidence_score,
+        )
 
-    total = query.count()
-    executions = (
-        query.order_by(desc(AgentExecution.created_at))
-        .offset((page - 1) * per_page)
-        .limit(per_page)
-        .all()
-    )
-
-    items = [ExecutionListResponse.from_orm(e) for e in executions]
-
-    return PaginatedExecutionsResponse(
-        total=total,
-        page=page,
-        per_page=per_page,
-        items=items,
-    )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[EnrichmentAPI] Error fetching execution status: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch execution status: {str(e)}",
+        )
 
 
 # ── Helper Functions ──────────────────────────────────────────────────

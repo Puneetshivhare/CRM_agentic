@@ -141,9 +141,18 @@ services:
     container_name: agentic-crm-frontend
     restart: unless-stopped
     environment:
+      # Browser-side URL
       NEXT_PUBLIC_API_URL: http://localhost:8005/api
+      # Server-side internal URL (overrides for SSR if used)
+      INTERNAL_API_URL: http://backend:8000/api
+      NODE_ENV: development
     ports:
       - "3005:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
     depends_on:
       backend:
         condition: service_healthy
