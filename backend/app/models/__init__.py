@@ -10,6 +10,9 @@ from app.models.interaction import Interaction
 from app.models.enrichment_event import EnrichmentEvent
 from app.models.agent_execution import AgentExecution
 from app.models.memory import MemoryStore, MemoryVector
+from app.models.campaign import Campaign
+from app.models.lead_score import LeadScore
+from app.models.rule_execution import RuleExecution
 
 __all__ = [
     "AuthUser",
@@ -23,4 +26,7 @@ __all__ = [
     "AgentExecution",
     "MemoryStore",
     "MemoryVector",
+    "Campaign",
+    "LeadScore",
+    "RuleExecution",
 ]
