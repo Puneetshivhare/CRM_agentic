@@ -12,6 +12,7 @@ Endpoints:
 """
 
 import logging
+from datetime import datetime
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -69,8 +70,8 @@ class CompanyResponse(CompanyBase):
     company_id: int
     user_id: int
     last_monitoring_run_at: Optional[str] = None
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
     prospects_count: int = 0
 
     class Config:
@@ -95,6 +96,9 @@ class MonitorSignal(BaseModel):
 
     class Config:
         from_attributes = True
+class ToggleMonitoringResponse(BaseModel):
+    status: str
+    monitoring_enabled: bool
 
 
 # ── Helper Functions ──────────────────────────────────────────────────
@@ -278,7 +282,7 @@ async def delete_company(
     logger.info(f"Deleted company {company_id} for user {user_id}")
 
 
-@router.post("/{company_id}/monitor", response_model={"status": str, "monitoring_enabled": bool})
+@router.post("/{company_id}/monitor", response_model=ToggleMonitoringResponse)
 async def toggle_monitoring(
     company_id: int,
     db: Session = Depends(get_db),
