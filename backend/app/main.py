@@ -1,14 +1,4 @@
-"""
-app/main.py — FastAPI application entry point.
-
-Responsibilities:
-  - App creation with metadata
-  - CORS middleware configuration
-  - Structured JSON logging setup (via lifespan)
-  - Health check endpoint
-  - Router registration
-  - Database connectivity check on startup
-"""
+"""FastAPI application entry point."""
 
 import logging
 import time
@@ -19,67 +9,65 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+import app.models  # noqa: F401
 from app.config import settings
-from app.database import Base, check_db_connection, engine
-from app.utils.logger import configure_logging
-
-# ── Import all models so Base.metadata is populated for table creation ────────
-import app.models  # noqa: F401  (side-effect import)
-
-# ── Import routers ────────────────────────────────────────────────────────────
+from app.database import Base, check_db_connection, check_supabase_connection, engine
 from app.routes import auth as auth_router
-from app.routes import prospects as prospects_router
-from app.routes import enrichment as enrichment_router
-from app.routes import documents as documents_router
-from app.routes import companies as companies_router
 from app.routes import campaigns as campaigns_router
-from app.routes import lead_scores as lead_scores_router
+from app.routes import companies as companies_router
+from app.routes import documents as documents_router
+from app.routes import enrichment as enrichment_router
+from app.routes import prospects as prospects_router
 from app.routes import rules as rules_router
+from app.routes import search as search_router
+from app.utils.logger import configure_logging, trace_logic
 
 logger = logging.getLogger("agentic_crm")
 
 
-# ── Lifespan: startup / shutdown logic ────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """
-    FastAPI lifespan context manager.
-
-    Startup:
-      1. Configure structured logging
-      2. Verify DB connectivity
-      3. Create all tables (if running without Alembic in dev)
-
-    Shutdown:
-      - Dispose DB connection pool
-    """
-    # ── Startup ──────────────────────────────────────────────────────────
+    """Configure logging and verify active and standby database connections."""
     configure_logging()
-    logger.info("Starting Agentic CRM API", extra={"environment": settings.environment})
+    logger.info(
+        "Starting Agentic CRM API",
+        extra={
+            "environment": settings.environment,
+            "active_db_provider": settings.normalized_db_provider,
+        },
+    )
+    trace_logic(
+        logger,
+        "app.startup",
+        active_db_provider=settings.normalized_db_provider,
+        environment=settings.environment,
+        has_supabase_url=bool(settings.supabase_url),
+        has_supabase_db_url=bool(settings.supabase_database_url),
+    )
 
-    if not check_db_connection():
-        logger.critical("Cannot connect to database — check DATABASE_URL and Postgres container")
-    else:
-        logger.info("Database connection verified ✓")
-        # Create tables for development; in production use `alembic upgrade head`
+    if check_db_connection():
+        logger.info("Active database connection verified")
         if settings.environment == "development":
             Base.metadata.create_all(bind=engine)
-            logger.info("Database tables created/verified via SQLAlchemy ✓")
+            logger.info("Database tables created or verified")
+    else:
+        logger.critical("Cannot connect to active database")
 
-    yield  # ← Application runs here
+    supabase_status = check_supabase_connection()
+    if supabase_status is True:
+        logger.info("Standby Supabase connection verified")
+    elif supabase_status is False:
+        logger.warning("Standby Supabase connection is configured but unreachable")
 
-    # ── Shutdown ─────────────────────────────────────────────────────────
+    yield
+
     engine.dispose()
-    logger.info("Database connections closed. Goodbye!")
+    logger.info("Database connections closed")
 
 
-# ── FastAPI application ───────────────────────────────────────────────────────
 app = FastAPI(
     title="Agentic CRM API",
-    description=(
-        "AI-powered prospect enrichment and CRM system. "
-        "Agents autonomously research, enrich, and monitor prospects using Gemini LLM."
-    ),
+    description="Minimal backend API for the current Agentic CRM frontend.",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -87,7 +75,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# ── CORS ──────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -96,44 +83,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ── Routers ───────────────────────────────────────────────────────────────────
 app.include_router(auth_router.router)
 app.include_router(prospects_router.router)
-app.include_router(enrichment_router.router)
-app.include_router(documents_router.router)
 app.include_router(companies_router.router)
 app.include_router(campaigns_router.router)
-app.include_router(lead_scores_router.router)
+app.include_router(documents_router.router)
+app.include_router(enrichment_router.router)
 app.include_router(rules_router.router)
+app.include_router(search_router.router)
 
 
-# ── Health check ──────────────────────────────────────────────────────────────
-@app.get(
-    "/health",
-    tags=["System"],
-    summary="Health check",
-    response_description="Service health status",
-)
+@app.get("/health", tags=["System"], summary="Health check")
 async def health_check() -> JSONResponse:
-    """
-    Lightweight health check endpoint.
-
-    Returns 200 with DB status. Used by Docker HEALTHCHECK and load balancers.
-    """
+    """Return active database status for Docker and frontend diagnostics."""
     db_ok = check_db_connection()
+    trace_logic(
+        logger,
+        "health.check",
+        database_connected=db_ok,
+        active_db_provider=settings.normalized_db_provider,
+    )
     payload = {
         "status": "ok" if db_ok else "degraded",
         "service": "agentic-crm-api",
         "version": "1.0.0",
         "database": "connected" if db_ok else "unreachable",
+        "active_db_provider": settings.normalized_db_provider,
         "environment": settings.environment,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
-    status_code = 200 if db_ok else 503
-    return JSONResponse(content=payload, status_code=status_code)
+    return JSONResponse(content=payload, status_code=200 if db_ok else 503)
 
 
 @app.get("/", tags=["System"], include_in_schema=False)
-async def root() -> dict:
-    """Redirect hint for the root URL."""
-    return {"message": "Agentic CRM API — visit /docs for API documentation"}
+async def root() -> dict[str, str]:
+    return {"message": "Agentic CRM API - visit /docs for API documentation"}

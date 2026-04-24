@@ -1,26 +1,17 @@
-"""
-app/utils/logger.py — Structured JSON logging configuration.
+"""Structured logging and lightweight debug trace helpers."""
 
-All log output is JSON-formatted so it can be parsed by monitoring tools
-(Datadog, Grafana Loki, Cloud Logging, etc.).
-"""
-
+import json
 import logging
 import sys
+
 from pythonjsonlogger import jsonlogger
+
 from app.config import settings
 
 
 def configure_logging() -> None:
-    """
-    Configure the root 'agentic_crm' logger with JSON formatting.
-
-    Call this once at application startup (inside `lifespan` or module top-level).
-    All sub-loggers will inherit this configuration.
-    """
+    """Configure the root application logger once."""
     logger = logging.getLogger("agentic_crm")
-
-    # Avoid duplicate handlers if called multiple times
     if logger.handlers:
         return
 
@@ -33,3 +24,11 @@ def configure_logging() -> None:
     logger.addHandler(handler)
     logger.setLevel(getattr(logging, settings.log_level.upper(), logging.INFO))
     logger.propagate = False
+
+
+def trace_logic(logger: logging.Logger, event: str, **context) -> None:
+    """Write a structured log and optional stdout trace for backend debugging."""
+    payload = {"event": event, **context}
+    logger.info(event, extra={"debug_context": payload})
+    if settings.debug_trace_enabled:
+        print(json.dumps(payload, default=str), flush=True)

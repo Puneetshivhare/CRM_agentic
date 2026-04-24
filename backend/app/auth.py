@@ -1,11 +1,11 @@
 """
-app/auth.py — JWT authentication helpers.
+app/auth.py — JWT authentication helpers using Authlib.
 
 Provides:
   - `hash_password()`      → bcrypt password hashing
   - `verify_password()`    → bcrypt comparison
-  - `create_access_token()` → JWT creation
-  - `verify_token()`       → JWT validation (FastAPI dependency)
+  - `create_access_token()` → JWT creation (Authlib)
+  - `verify_token()`       → JWT validation (FastAPI dependency using Authlib)
   - `get_current_user()`   → Convenience dependency wrapping verify_token
 """
 
@@ -15,7 +15,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
+from authlib.jose import jwt, JoseError
 from passlib.context import CryptContext
 
 from app.config import settings
@@ -31,64 +31,34 @@ _pwd_context = CryptContext(
 
 
 def hash_password(plain_password: str) -> str:
-    """
-    Hash a plain-text password using bcrypt.
-
-    Args:
-        plain_password: The user-supplied plain-text password.
-
-    Returns:
-        A bcrypt hash string safe to store in the database.
-    """
+    """Hash a plain-text password using bcrypt."""
     return _pwd_context.hash(plain_password)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """
-    Compare a plain-text password against a stored bcrypt hash.
-
-    Args:
-        plain_password:  The password supplied at login.
-        hashed_password: The stored bcrypt hash from the database.
-
-    Returns:
-        True if they match, False otherwise.
-    """
+    """Compare a plain-text password against a stored bcrypt hash."""
     return _pwd_context.verify(plain_password, hashed_password)
 
 
-# ── JWT token creation ────────────────────────────────────────────────────────
+# ── JWT token creation (Authlib) ──────────────────────────────────────────────
 def create_access_token(user_id: int, email: str) -> str:
-    """
-    Create a signed JWT access token.
-
-    The token embeds `user_id` and `email` as custom claims.
-    Expiry is controlled by `settings.jwt_expire_minutes`.
-
-    Args:
-        user_id: The authenticated user's primary key.
-        email:   The authenticated user's email address.
-
-    Returns:
-        A signed JWT string to be returned to the client.
-    """
-    expires_at = datetime.now(tz=timezone.utc) + timedelta(
-        minutes=settings.jwt_expire_minutes
-    )
-    payload: dict = {
-        "sub": str(user_id),       # standard JWT subject claim
-        "user_id": user_id,        # convenience claim used inside routes
+    """Create a signed JWT access token using Authlib."""
+    now = datetime.now(tz=timezone.utc)
+    expires_at = now + timedelta(minutes=settings.jwt_expire_minutes)
+    
+    header = {"alg": settings.jwt_algorithm}
+    payload = {
+        "iss": "agentic-crm",
+        "sub": str(user_id),
+        "user_id": user_id,
         "email": email,
-        "exp": expires_at,
-        "iat": datetime.now(tz=timezone.utc),
+        "exp": int(expires_at.timestamp()),
+        "iat": int(now.timestamp()),
     }
+    
     try:
-        token = jwt.encode(
-            payload,
-            settings.jwt_secret_key,
-            algorithm=settings.jwt_algorithm,
-        )
-        return token
+        token = jwt.encode(header, payload, settings.jwt_secret_key)
+        return token.decode("utf-8") if isinstance(token, bytes) else token
     except Exception as exc:
         logger.error("Failed to create JWT token for user_id=%s: %s", user_id, exc)
         raise
@@ -101,24 +71,17 @@ _http_bearer = HTTPBearer()
 async def verify_token(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(_http_bearer)],
 ) -> dict:
-    """
-    FastAPI dependency — decode and validate a Bearer JWT token.
-
-    Raises:
-        HTTPException 401: If the token is missing, expired, or tampered with.
-
-    Returns:
-        A dict containing `user_id` (int) and `email` (str).
-    """
+    """FastAPI dependency — decode and validate a Bearer JWT token using Authlib."""
     token = credentials.credentials
     try:
-        payload = jwt.decode(
-            token,
-            settings.jwt_secret_key,
-            algorithms=[settings.jwt_algorithm],
-        )
-        user_id: int | None = payload.get("user_id")
-        email: str | None = payload.get("email")
+        # Authlib jwt.decode takes key and optional algorithms
+        claims = jwt.decode(token, settings.jwt_secret_key)
+        
+        # Verify basic claims manually as simple Authlib doesn't auto-verify 'exp' without extra config
+        claims.validate()
+        
+        user_id = claims.get("user_id")
+        email = claims.get("email")
 
         if user_id is None or email is None:
             raise HTTPException(
@@ -129,7 +92,7 @@ async def verify_token(
 
         return {"user_id": int(user_id), "email": email}
 
-    except JWTError as exc:
+    except JoseError as exc:
         logger.warning("JWT verification failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -141,12 +104,5 @@ async def verify_token(
 async def get_current_user(
     user_info: Annotated[dict, Depends(verify_token)],
 ) -> dict:
-    """
-    Convenience dependency — returns the validated user dict from the JWT.
-
-    Usage:
-        @router.get("/protected")
-        async def protected(user: dict = Depends(get_current_user)):
-            return {"user_id": user["user_id"]}
-    """
+    """Convenience dependency — returns the validated user dict from the JWT."""
     return user_info

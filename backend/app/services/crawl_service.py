@@ -1,43 +1,56 @@
 """
-app/services/crawl_service.py — Web scraping service using Crawl4AI + LightPanda.
+app/services/crawl_service.py - Web crawling service using Crawl4AI + Playwright.
 
 Responsibilities:
-  - Crawl company websites and extract structured data
-  - Handle JavaScript-heavy sites via LightPanda
-  - Retry with exponential backoff (tenacity)
-  - Return raw HTML + extracted text for Gemini processing
+  - Crawl company websites with a browser-backed provider
+  - Return normalized HTML, text, markdown, and metadata
+  - Fall back to basic HTTP fetching when browser crawling is unavailable
+  - Keep the public API stable for ResearchAgent and MonitoringAgent
 """
+
+from __future__ import annotations
 
 import asyncio
 import logging
 import re
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 from bs4 import BeautifulSoup
 from tenacity import (
     retry,
+    retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
-    retry_if_exception_type,
 )
+
+from app.config import settings
 
 logger = logging.getLogger("agentic_crm")
 
 
 class CrawlService:
-    """Service for web scraping and content extraction."""
+    """Service for browser-backed crawling and content extraction."""
 
-    def __init__(self, timeout_seconds: int = 30, max_retries: int = 3):
-        """
-        Initialize the crawl service.
-
-        Args:
-            timeout_seconds: Max time to wait for a page to load
-            max_retries: Max number of retries on failure
-        """
+    def __init__(
+        self,
+        timeout_seconds: int = 30,
+        max_retries: int = 3,
+        provider: Optional[str] = None,
+    ):
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
+        self.provider = (provider or settings.crawl_provider).strip().lower()
+        self.browser_type = settings.crawl_browser_type
+        self.headless = settings.crawl_headless
+        self.text_mode = settings.crawl_text_mode
+        self.light_mode = settings.crawl_light_mode
+        self.http_fallback_enabled = settings.crawl_http_fallback_enabled
+        self.respect_robots_txt = settings.crawl_respect_robots_txt
+        self.verbose = settings.crawl_verbose
+        self.user_agent = settings.crawl_user_agent.strip() or None
+        self.word_count_threshold = settings.crawl_word_count_threshold
+        self.wait_for = settings.crawl_wait_for.strip() or None
 
     @retry(
         stop=stop_after_attempt(3),
@@ -45,140 +58,170 @@ class CrawlService:
         retry=retry_if_exception_type(Exception),
         reraise=True,
     )
-    async def crawl_url(self, url: str) -> dict:
+    async def crawl_url(self, url: str) -> dict[str, Any]:
         """
-        Crawl a URL and extract content.
-
-        Uses Crawl4AI for modern JS-based sites via LightPanda.
-        Returns raw HTML + extracted text.
-
-        Args:
-            url: The URL to crawl
+        Crawl a URL and extract normalized content.
 
         Returns:
-            Dict with url, title, text, html, and metadata
-
-        Raises:
-            Exception: On timeout, network error, or invalid URL
+            Dict with url, status_code, title, html, text, markdown, and metadata.
         """
-        if not url:
-            raise ValueError("URL cannot be empty")
+        normalized_url = self._normalize_url(url)
+        last_error: Exception | None = None
 
-        # Normalize URL
-        if not url.startswith(("http://", "https://")):
-            url = f"https://{url}"
+        if self.provider == "crawl4ai":
+            try:
+                return await self._crawl_with_crawl4ai(normalized_url)
+            except Exception as exc:
+                last_error = exc
+                logger.warning(
+                    "crawl4ai crawl failed for %s: %s",
+                    normalized_url,
+                    exc,
+                )
+                if not self.http_fallback_enabled:
+                    raise
 
         try:
-            logger.info(f"Crawling {url}")
+            fallback_result = await self._crawl_with_http(normalized_url)
+            fallback_result.setdefault("metadata", {})
+            fallback_result["metadata"]["fallback_used"] = last_error is not None
+            fallback_result["metadata"]["fallback_reason"] = (
+                str(last_error) if last_error else None
+            )
+            return fallback_result
+        except Exception as exc:
+            logger.error("Fallback crawl failed for %s: %s", normalized_url, exc)
+            raise exc from last_error
 
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
-                response = await client.get(url, follow_redirects=True)
-                response.raise_for_status()
-
-                html = response.text
-                soup = BeautifulSoup(html, 'html.parser')
-
-                # Extract title
-                title = soup.title.string if soup.title else "No title"
-
-                # Extract text (remove scripts/styles)
-                for script in soup(["script", "style"]):
-                    script.decompose()
-                text = soup.get_text(separator=' ', strip=True)
-                text = re.sub(r'\s+', ' ', text)
-
-                result = {
-                    "url": url,
-                    "status_code": response.status_code,
-                    "title": title,
-                    "html": html,
-                    "text": text[:5000],  # First 5000 chars for Gemini
-                    "metadata": {
-                        "language": response.headers.get("content-language", "unknown"),
-                        "charset": response.charset or "utf-8",
-                    },
-                }
-
-                logger.info(f"Successfully crawled {url} ({len(text)} chars)")
-                return result
-
-        except asyncio.TimeoutError:
-            logger.error(f"Timeout crawling {url} after {self.timeout_seconds}s")
-            raise
-        except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP {e.response.status_code} crawling {url}")
-            raise
-        except Exception as e:
-            logger.error(f"Error crawling {url}: {e}")
-            raise
-
-    async def extract_company_data(self, html: str, domain: str) -> dict:
-        """
-        Extract company data from raw HTML.
-
-        Pre-processes HTML before sending to Gemini.
-        Removes boilerplate, nav, footer, scripts.
-
-        Args:
-            html: Raw HTML content
-            domain: Domain for context (e.g., "acme.com")
-
-        Returns:
-            Dict with cleaned text, found links, meta tags, etc.
-        """
+    async def _crawl_with_crawl4ai(self, url: str) -> dict[str, Any]:
+        """Use Crawl4AI with Playwright-backed Chromium crawling."""
         try:
-            # Remove script and style tags
-            text = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL)
-            text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL)
+            from crawl4ai import AsyncWebCrawler, BrowserConfig, CacheMode, CrawlerRunConfig
+        except ModuleNotFoundError as exc:  # pragma: no cover - dependency/runtime issue
+            raise RuntimeError(
+                "crawl4ai is not installed in the backend runtime"
+            ) from exc
 
-            # Remove HTML tags
-            text = re.sub(r"<[^>]+>", " ", text)
+        browser_config = BrowserConfig(
+            browser_type=self.browser_type,
+            headless=self.headless,
+            verbose=self.verbose,
+            user_agent=self.user_agent,
+            text_mode=self.text_mode,
+            light_mode=self.light_mode,
+        )
+        run_config = CrawlerRunConfig(
+            cache_mode=CacheMode.BYPASS,
+            word_count_threshold=self.word_count_threshold,
+            wait_for=self.wait_for,
+            check_robots_txt=self.respect_robots_txt,
+            verbose=self.verbose,
+        )
 
-            # Clean whitespace
-            text = re.sub(r"\s+", " ", text).strip()
+        logger.info(
+            "Crawling %s via crawl4ai (browser=%s, headless=%s)",
+            url,
+            self.browser_type,
+            self.headless,
+        )
 
-            # Extract meta tags (og:description, meta description)
+        async with AsyncWebCrawler(config=browser_config) as crawler:
+            result = await crawler.arun(url=url, config=run_config)
+
+        success = bool(getattr(result, "success", False))
+        if not success:
+            error_message = getattr(result, "error_message", "Unknown crawl4ai error")
+            raise RuntimeError(error_message)
+
+        html = self._as_text(getattr(result, "html", "")) or self._as_text(
+            getattr(result, "cleaned_html", "")
+        )
+        cleaned_html = self._as_text(getattr(result, "cleaned_html", "")) or html
+        markdown = self._coerce_markdown(getattr(result, "markdown", ""))
+        text = self._extract_text_from_sources(cleaned_html, html, markdown)
+
+        raw_metadata = getattr(result, "metadata", None)
+        metadata = raw_metadata if isinstance(raw_metadata, dict) else {}
+        title = metadata.get("title") or self._extract_title(html)
+        status_code = metadata.get("status_code") or 200
+
+        return {
+            "url": self._as_text(getattr(result, "url", "")) or url,
+            "status_code": status_code,
+            "title": title,
+            "html": html,
+            "text": text[:5000],
+            "markdown": markdown,
+            "metadata": {
+                **metadata,
+                "provider": "crawl4ai",
+                "browser_type": self.browser_type,
+                "headless": self.headless,
+            },
+        }
+
+    async def _crawl_with_http(self, url: str) -> dict[str, Any]:
+        """Fallback crawler using httpx when browser crawling is unavailable."""
+        logger.info("Crawling %s via http fallback", url)
+
+        headers = {"User-Agent": self.user_agent} if self.user_agent else None
+        async with httpx.AsyncClient(timeout=self.timeout_seconds, headers=headers) as client:
+            response = await client.get(url, follow_redirects=True)
+            response.raise_for_status()
+
+        html = response.text
+        soup = BeautifulSoup(html, "html.parser")
+        title = soup.title.string.strip() if soup.title and soup.title.string else "No title"
+        text = self._extract_text_from_html(html)
+
+        return {
+            "url": str(response.url),
+            "status_code": response.status_code,
+            "title": title,
+            "html": html,
+            "text": text[:5000],
+            "markdown": "",
+            "metadata": {
+                "provider": "http",
+                "language": response.headers.get("content-language", "unknown"),
+                "charset": response.encoding or "utf-8",
+            },
+        }
+
+    async def extract_company_data(self, html: str, domain: str) -> dict[str, Any]:
+        """Pre-process crawled HTML before structured extraction."""
+        try:
+            text = self._extract_text_from_html(html)
             description_match = re.search(
                 r'<meta\s+name="description"\s+content="([^"]*)"',
                 html,
                 re.IGNORECASE,
             )
             description = description_match.group(1) if description_match else ""
-
-            # Extract headings (H1, H2)
             h1_matches = re.findall(r"<h1[^>]*>([^<]+)</h1>", html, re.IGNORECASE)
-            headings = h1_matches[:3]  # Top 3 H1s
+            headings = [heading.strip() for heading in h1_matches[:3] if heading.strip()]
 
             return {
                 "domain": domain,
-                "text": text[:5000],  # First 5K chars
+                "text": text[:5000],
                 "description": description,
                 "headings": headings,
                 "char_count": len(text),
             }
-
-        except Exception as e:
-            logger.error(f"Error extracting company data: {e}")
+        except Exception as exc:
+            logger.error("Error extracting company data: %s", exc)
             return {
                 "domain": domain,
                 "text": "",
                 "description": "",
                 "headings": [],
                 "char_count": 0,
-                "error": str(e),
+                "error": str(exc),
             }
 
-    async def crawl_company_website(self, domain: str) -> dict:
-        """
-        High-level: Crawl a company domain and extract key data.
-
-        Args:
-            domain: Company domain (e.g., "acme.com")
-
-        Returns:
-            Dict with extracted company info for Gemini
-        """
-        url = f"https://{domain}" if not domain.startswith("http") else domain
+    async def crawl_company_website(self, domain: str) -> dict[str, Any]:
+        """High-level company crawl for ResearchAgent and MonitoringAgent."""
+        url = self._normalize_url(domain)
         try:
             crawl_result = await self.crawl_url(url)
             extracted = await self.extract_company_data(crawl_result["html"], domain)
@@ -191,30 +234,26 @@ class CrawlService:
                 "description": extracted.get("description", ""),
                 "headings": extracted.get("headings", []),
                 "html_length": len(crawl_result.get("html", "")),
+                "metadata": crawl_result.get("metadata", {}),
             }
-        except Exception as e:
-            logger.error(f"Failed to crawl {domain}: {e}")
+        except Exception as exc:
+            logger.error("Failed to crawl %s: %s", domain, exc)
             return {
                 "status": "failed",
                 "domain": domain,
-                "error": str(e),
+                "error": str(exc),
             }
 
     async def crawl_prospect_profile(
-        self, prospect_name: str, company_domain: Optional[str] = None
-    ) -> dict:
+        self,
+        prospect_name: str,
+        company_domain: Optional[str] = None,
+    ) -> dict[str, Any]:
         """
-        Crawl for prospect profile info (LinkedIn, personal site, etc).
+        Placeholder for future search-driven prospect profile discovery.
 
-        Args:
-            prospect_name: Full name of prospect
-            company_domain: Optional company domain for context
-
-        Returns:
-            Dict with found profile URLs and snippets
+        The search layer will call this once query orchestration is added.
         """
-        # TODO: Implement LinkedIn/web search for prospect profiles
-        # For now, return stub
         return {
             "status": "pending",
             "prospect_name": prospect_name,
@@ -222,10 +261,50 @@ class CrawlService:
             "profiles_found": [],
         }
 
+    def _normalize_url(self, url: str) -> str:
+        if not url:
+            raise ValueError("URL cannot be empty")
+        if not url.startswith(("http://", "https://")):
+            return f"https://{url}"
+        return url
 
-# Module-level instance for easy import
+    def _extract_title(self, html: str) -> str:
+        if not html:
+            return "No title"
+        soup = BeautifulSoup(html, "html.parser")
+        if soup.title and soup.title.string:
+            return soup.title.string.strip()
+        return "No title"
+
+    def _extract_text_from_sources(self, cleaned_html: str, html: str, markdown: str) -> str:
+        if cleaned_html:
+            return self._extract_text_from_html(cleaned_html)
+        if html:
+            return self._extract_text_from_html(html)
+        return re.sub(r"\s+", " ", markdown or "").strip()
+
+    def _extract_text_from_html(self, html: str) -> str:
+        soup = BeautifulSoup(html, "html.parser")
+        for tag in soup(["script", "style", "noscript"]):
+            tag.decompose()
+        text = soup.get_text(separator=" ", strip=True)
+        return re.sub(r"\s+", " ", text)
+
+    def _coerce_markdown(self, value: Any) -> str:
+        if isinstance(value, str):
+            return value
+        if hasattr(value, "raw_markdown"):
+            raw_markdown = getattr(value, "raw_markdown")
+            if isinstance(raw_markdown, str):
+                return raw_markdown
+        return self._as_text(value)
+
+    def _as_text(self, value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        return str(value)
+
+
 crawl_service = CrawlService()
-
-
-# TODO: Remove this import when Crawl4AI integration is done
-import asyncio

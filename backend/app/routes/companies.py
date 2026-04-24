@@ -25,6 +25,7 @@ from app.database import get_db
 from app.models.company import Company
 from app.models.prospect import Prospect
 from app.models.agent_execution import AgentExecution
+from app.utils.logger import trace_logic
 
 logger = logging.getLogger("agentic_crm")
 router = APIRouter(prefix="/api/companies", tags=["companies"])
@@ -119,6 +120,7 @@ async def list_companies(
     user_id: int = Depends(get_current_user_id),
 ) -> PaginatedCompaniesResponse:
     """List companies for the current user."""
+    trace_logic(logger, "companies.list.request", user_id=user_id, page=page, per_page=per_page, search=search)
     query = db.query(Company).filter(Company.user_id == user_id)
 
     if search:
@@ -229,6 +231,7 @@ async def create_company(
     db.refresh(company)
 
     logger.info(f"Created company {company.company_id} for user {user_id}")
+    trace_logic(logger, "companies.create.success", user_id=user_id, company_id=company.company_id, domain=company.domain)
     return CompanyResponse.from_orm(company)
 
 
@@ -304,6 +307,7 @@ async def toggle_monitoring(
     logger.info(
         f"Toggled monitoring to {company.monitoring_enabled} for company {company_id}"
     )
+    trace_logic(logger, "companies.monitor.toggle", user_id=user_id, company_id=company_id, monitoring_enabled=company.monitoring_enabled)
 
     return {
         "status": "success",

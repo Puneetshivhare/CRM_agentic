@@ -4,13 +4,55 @@ from app.services.crawl_service import CrawlService
 
 
 @pytest.mark.asyncio
-async def test_crawl_url_normalizes_scheme():
-    service = CrawlService()
+async def test_crawl_url_normalizes_scheme(monkeypatch):
+    service = CrawlService(provider="crawl4ai")
+
+    async def fake_crawl(url: str):
+        return {
+            "url": url,
+            "status_code": 200,
+            "title": "Example",
+            "html": "<html><body>Example</body></html>",
+            "text": "Example",
+            "markdown": "",
+            "metadata": {"provider": "crawl4ai"},
+        }
+
+    monkeypatch.setattr(service, "_crawl_with_crawl4ai", fake_crawl)
 
     result = await service.crawl_url("example.com")
 
     assert result["url"] == "https://example.com"
     assert result["status_code"] == 200
+
+
+@pytest.mark.asyncio
+async def test_crawl_url_falls_back_to_http_when_browser_provider_fails(monkeypatch):
+    service = CrawlService(provider="crawl4ai")
+
+    async def raise_browser_error(url: str):
+        raise RuntimeError("browser boot failed")
+
+    async def fake_http(url: str):
+        return {
+            "url": url,
+            "status_code": 200,
+            "title": "Example",
+            "html": "<html><body>Fallback</body></html>",
+            "text": "Fallback",
+            "markdown": "",
+            "metadata": {"provider": "http"},
+        }
+
+    monkeypatch.setattr(service, "_crawl_with_crawl4ai", raise_browser_error)
+    monkeypatch.setattr(service, "_crawl_with_http", fake_http)
+
+    result = await service.crawl_url("example.com")
+
+    assert result["url"] == "https://example.com"
+    assert result["metadata"]["provider"] == "http"
+    assert result["metadata"]["fallback_used"] is True
+    assert "browser boot failed" in result["metadata"]["fallback_reason"]
 
 
 @pytest.mark.asyncio

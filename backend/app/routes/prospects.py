@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.database import get_db
 from app.models.prospect import Prospect
+from app.utils.logger import trace_logic
 from pydantic import BaseModel, EmailStr, Field
 
 logger = logging.getLogger("agentic_crm")
@@ -72,7 +73,7 @@ class ProspectResponse(ProspectBase):
     user_id: int
     enrichment_status: str
     enrichment_confidence: float
-    last_contacted_at: Optional[str] = None
+    last_contacted_at: Optional[datetime] = None
     email_opens: int
     email_clicks: int
     created_at: datetime
@@ -110,6 +111,7 @@ async def list_prospects(
 ) -> PaginatedProspectsResponse:
     """List prospects with optional filtering and pagination."""
     try:
+        trace_logic(logger, "prospects.list.request", user_id=user_id, page=page, per_page=per_page, search=search)
         query = db.query(Prospect).filter(Prospect.user_id == user_id)
 
         # Apply search filter
@@ -141,6 +143,7 @@ async def list_prospects(
         )
     except Exception as e:
         logger.error(f"Error listing prospects: {e}")
+        trace_logic(logger, "prospects.list.error", user_id=user_id, error=str(e))
         raise HTTPException(status_code=500, detail="Failed to list prospects")
 
 
@@ -187,10 +190,12 @@ async def create_prospect(
         db.commit()
         db.refresh(db_prospect)
         logger.info(f"Created prospect {db_prospect.prospect_id} for user {user_id}")
+        trace_logic(logger, "prospects.create.success", user_id=user_id, prospect_id=db_prospect.prospect_id, email=db_prospect.email)
         return db_prospect
     except Exception as e:
         db.rollback()
         logger.error(f"Error creating prospect: {e}")
+        trace_logic(logger, "prospects.create.error", user_id=user_id, error=str(e))
         raise HTTPException(status_code=500, detail="Failed to create prospect")
 
 
@@ -247,11 +252,13 @@ async def delete_prospect(
         db.delete(db_prospect)
         db.commit()
         logger.info(f"Deleted prospect {prospect_id} for user {user_id}")
+        trace_logic(logger, "prospects.delete.success", user_id=user_id, prospect_id=prospect_id)
     except HTTPException:
         raise
     except Exception as e:
         db.rollback()
         logger.error(f"Error deleting prospect: {e}")
+        trace_logic(logger, "prospects.delete.error", user_id=user_id, prospect_id=prospect_id, error=str(e))
         raise HTTPException(status_code=500, detail="Failed to delete prospect")
 
 
