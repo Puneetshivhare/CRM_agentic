@@ -22,6 +22,7 @@ from app.auth import (
 )
 from app.database import get_db
 from app.models.auth import AuthUser
+from app.utils.logger import trace_logic
 
 logger = logging.getLogger("agentic_crm")
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
@@ -85,6 +86,7 @@ async def signup(
     # Check if email already registered
     existing = db.query(AuthUser).filter(AuthUser.email == request.email).first()
     if existing:
+        trace_logic(logger, "auth.signup.conflict", email=request.email)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Email already registered",
@@ -100,6 +102,7 @@ async def signup(
     db.refresh(user)
 
     logger.info("New user registered: user_id=%s email=%s", user.user_id, user.email)
+    trace_logic(logger, "auth.signup.success", user_id=user.user_id, email=user.email)
 
     token = create_access_token(user_id=user.user_id, email=user.email)
     return AuthResponse(
@@ -131,6 +134,7 @@ async def login(
 
     # Constant-time check (avoids timing-based enumeration)
     if user is None or not verify_password(request.password, user.password_hash):
+        trace_logic(logger, "auth.login.failed", email=request.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -138,6 +142,7 @@ async def login(
         )
 
     logger.info("User logged in: user_id=%s", user.user_id)
+    trace_logic(logger, "auth.login.success", user_id=user.user_id, email=user.email)
 
     token = create_access_token(user_id=user.user_id, email=user.email)
     return AuthResponse(token=token, user_id=user.user_id, email=user.email)

@@ -1,170 +1,143 @@
 "use client";
 
-import React, { useState } from 'react';
-import { X, User, Mail, Briefcase, Plus } from 'lucide-react';
+import React, { useEffect, useState } from "react";
+import { Briefcase, Mail, User, X } from "lucide-react";
+import { Button } from "@/components/ui/Button";
+import { FeedbackBanner } from "@/components/ui/FeedbackBanner";
+import { Input } from "@/components/ui/Input";
 
 interface AddProspectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (data: { first_name: string; last_name?: string; email: string; title?: string }) => void;
+  onSubmit: (data: { first_name: string; last_name?: string; email: string; title?: string }) => Promise<void> | void;
   loading?: boolean;
 }
 
-export default function AddProspectModal({ isOpen, onClose, onSubmit, loading }: AddProspectModalProps) {
-  const [formData, setFormData] = useState({
-    first_name: '',
-    last_name: '',
-    email: '',
-    title: '',
-  });
-  const [error, setError] = useState('');
+const initialState = {
+  first_name: "",
+  last_name: "",
+  email: "",
+  title: "",
+};
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
+export default function AddProspectModal({ isOpen, onClose, onSubmit, loading }: AddProspectModalProps) {
+  const [formData, setFormData] = useState(initialState);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!isOpen) {
+      setFormData(initialState);
+      setError("");
+    }
+  }, [isOpen]);
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError("");
 
     if (!formData.first_name.trim()) {
-      setError('First name is required');
-      return;
-    }
-    if (!formData.email.trim()) {
-      setError('Email is required');
-      return;
-    }
-    if (!formData.email.includes('@')) {
-      setError('Please enter a valid email');
+      setError("First name is required.");
       return;
     }
 
-    onSubmit({
-      first_name: formData.first_name,
-      last_name: formData.last_name || undefined,
-      email: formData.email,
-      title: formData.title || undefined,
-    });
+    if (!formData.email.includes("@")) {
+      setError("Enter a valid work email.");
+      return;
+    }
 
-    setFormData({ first_name: '', last_name: '', email: '', title: '' });
+    try {
+      await onSubmit({
+        first_name: formData.first_name.trim(),
+        last_name: formData.last_name.trim() || undefined,
+        email: formData.email.trim(),
+        title: formData.title.trim() || undefined,
+      });
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "Unable to create prospect.");
+    }
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/30 backdrop-blur-[2px] flex items-center justify-center z-[100] p-4 animate-in fade-in duration-300">
-      <div className="bg-white rounded-[32px] border border-[#e5e7eb] w-full max-w-lg shadow-[0_32px_64px_-12px_rgba(0,0,0,0.1)] overflow-hidden scale-in-center animate-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="px-8 pt-8 pb-6 border-b border-[#f3f4f6] relative">
-          <div className="w-12 h-12 rounded-2xl bg-[#f0f7ff] flex items-center justify-center mb-4">
-             <Plus className="text-[#2563eb] w-6 h-6" strokeWidth={2.5} />
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/20 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-xl rounded-[28px] border border-[var(--color-border)] bg-white shadow-[var(--shadow-elevated)]">
+        <div className="flex items-start justify-between border-b border-[var(--color-border)] px-6 py-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-text-subtle)]">New prospect</p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-[var(--color-text)]">Create a prospect record</h2>
+            <p className="mt-1 text-sm text-[var(--color-text-muted)]">Add a person to the shared revenue workspace and queue them for enrichment.</p>
           </div>
-          <h2 className="text-2xl font-bold text-[#111827] tracking-tight">Add New Prospect</h2>
-          <p className="text-[#6b7280] text-sm font-medium mt-1">Fill in the details to start the intelligence workflow.</p>
-          
           <button
+            type="button"
             onClick={onClose}
-            disabled={loading}
-            className="absolute top-6 right-6 p-2 text-[#9ca3af] hover:text-[#111827] hover:bg-[#f3f4f6] rounded-xl transition-all disabled:opacity-50"
+            className="rounded-xl p-2 text-[var(--color-text-subtle)] transition hover:bg-[var(--color-surface-subtle)] hover:text-[var(--color-text)]"
           >
-            <X className="w-5 h-5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-8 space-y-6">
-          <div className="grid grid-cols-2 gap-6">
-            <div className="space-y-2">
-              <label className="text-[11px] font-bold text-[#9ca3af] uppercase tracking-wider ml-1">
-                First Name <span className="text-[#ef4444]">*</span>
-              </label>
+        <form onSubmit={handleSubmit} className="space-y-5 px-6 py-6">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="grid gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-text-subtle)]">First name</span>
               <div className="relative">
-                <User size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9ca3af]" />
-                <input
-                  type="text"
-                  placeholder="John"
+                <User className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-subtle)]" />
+                <Input
                   value={formData.first_name}
-                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                  disabled={loading}
-                  className="w-full bg-[#f9fafb] border border-[#e5e7eb] rounded-2xl pl-11 pr-4 py-3 text-[#111827] text-sm font-medium placeholder:text-[#9ca3af] focus:bg-white focus:ring-4 focus:ring-[#2563eb]/5 focus:border-[#2563eb]/30 outline-none transition-all disabled:opacity-50 text-[13px]"
+                  onChange={(event) => setFormData((current) => ({ ...current, first_name: event.target.value }))}
+                  placeholder="Avery"
+                  className="pl-10"
                 />
               </div>
-            </div>
+            </label>
 
-            <div className="space-y-2">
-              <label className="text-[11px] font-bold text-[#9ca3af] uppercase tracking-wider ml-1">
-                Last Name
-              </label>
-              <input
-                type="text"
-                placeholder="Doe"
+            <label className="grid gap-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-text-subtle)]">Last name</span>
+              <Input
                 value={formData.last_name}
-                onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                disabled={loading}
-                className="w-full bg-[#f9fafb] border border-[#e5e7eb] rounded-2xl px-4 py-3 text-[#111827] text-sm font-medium placeholder:text-[#9ca3af] focus:bg-white focus:ring-4 focus:ring-[#2563eb]/5 focus:border-[#2563eb]/30 outline-none transition-all disabled:opacity-50 text-[13px]"
+                onChange={(event) => setFormData((current) => ({ ...current, last_name: event.target.value }))}
+                placeholder="Morgan"
               />
-            </div>
+            </label>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-[11px] font-bold text-[#9ca3af] uppercase tracking-wider ml-1">
-              Work Email <span className="text-[#ef4444]">*</span>
-            </label>
+          <label className="grid gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-text-subtle)]">Work email</span>
             <div className="relative">
-              <Mail size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9ca3af]" />
-              <input
+              <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-subtle)]" />
+              <Input
                 type="email"
-                placeholder="john@stripe.com"
                 value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                disabled={loading}
-                className="w-full bg-[#f9fafb] border border-[#e5e7eb] rounded-2xl pl-11 pr-4 py-3 text-[#111827] text-sm font-medium placeholder:text-[#9ca3af] focus:bg-white focus:ring-4 focus:ring-[#2563eb]/5 focus:border-[#2563eb]/30 outline-none transition-all disabled:opacity-50 text-[13px]"
+                onChange={(event) => setFormData((current) => ({ ...current, email: event.target.value }))}
+                placeholder="avery@company.com"
+                className="pl-10"
               />
             </div>
-          </div>
+          </label>
 
-          <div className="space-y-2">
-            <label className="text-[11px] font-bold text-[#9ca3af] uppercase tracking-wider ml-1">
-              Job Title
-            </label>
+          <label className="grid gap-2">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-text-subtle)]">Role</span>
             <div className="relative">
-              <Briefcase size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9ca3af]" />
-              <input
-                type="text"
-                placeholder="VP of Sales Intelligence"
+              <Briefcase className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-subtle)]" />
+              <Input
                 value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                disabled={loading}
-                className="w-full bg-[#f9fafb] border border-[#e5e7eb] rounded-2xl pl-11 pr-4 py-3 text-[#111827] text-sm font-medium placeholder:text-[#9ca3af] focus:bg-white focus:ring-4 focus:ring-[#2563eb]/5 focus:border-[#2563eb]/30 outline-none transition-all disabled:opacity-50 text-[13px]"
+                onChange={(event) => setFormData((current) => ({ ...current, title: event.target.value }))}
+                placeholder="VP of Sales"
+                className="pl-10"
               />
             </div>
-          </div>
+          </label>
 
-          {error && (
-            <div className="p-4 bg-[#fef2f2] border border-[#fee2e2] rounded-2xl text-xs font-bold text-[#991b1b] flex items-center gap-2">
-              <div className="w-1.5 h-1.5 rounded-full bg-[#ef4444]" />
-              {error}
-            </div>
-          )}
+          {error ? <FeedbackBanner tone="error" message={error} /> : null}
 
-          <div className="flex gap-4 pt-4">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={loading}
-              className="flex-1 px-6 py-3 bg-white border border-[#e5e7eb] rounded-2xl text-sm font-bold text-[#4b5563] hover:bg-[#f9fafb] active:scale-[0.98] transition-all disabled:opacity-50"
-            >
+          <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>
               Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-[1.5] px-6 py-3 bg-[#2563eb] text-white rounded-2xl text-sm font-bold shadow-[0_8px_20px_-4px_rgba(37,99,235,0.3)] hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Adding...</span>
-                </>
-              ) : 'Create Prospect'}
-            </button>
+            </Button>
+            <Button type="submit" disabled={loading}>
+              {loading ? "Creating..." : "Create prospect"}
+            </Button>
           </div>
         </form>
       </div>

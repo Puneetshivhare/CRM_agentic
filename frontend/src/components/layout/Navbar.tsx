@@ -1,52 +1,47 @@
 "use client";
 
-import React from 'react';
-import { Search, Bell, User, HelpCircle, Menu } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import React from "react";
+import { Bell, HelpCircle, Search, User } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { Input } from "@/components/ui/Input";
 
-export default function Navbar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
+export default function Navbar() {
+  const { user } = useAuth();
+
   return (
-    <div className="h-full px-6 flex items-center justify-between bg-white/70 backdrop-blur-xl border border-white/40 m-2 rounded-[24px] shadow-[0_8px_30px_rgba(0,0,0,0.02)]">
-      {/* Left Section: Toggle & Search */}
-      <div className="flex items-center gap-6">
-        <button 
-          onClick={onToggleSidebar}
-          className="p-2.5 rounded-xl hover:bg-[#f3f4f6] transition-all text-[#6b7280] hover:text-[#111827] active:scale-95"
-          aria-label="Toggle Sidebar"
-        >
-          <Menu className="w-5 h-5" />
-        </button>
-
-        <div className="flex items-center gap-3 bg-[#f3f4f6]/50 px-4 py-2 rounded-xl border border-[#e5e7eb] w-[350px] group focus-within:bg-white focus-within:ring-4 focus-within:ring-[#2563eb]/5 focus-within:border-[#2563eb]/30 transition-all duration-300">
-          <Search className="w-4 h-4 text-[#9ca3af] group-focus-within:text-[#2563eb] transition-colors" />
-          <input
-            type="text"
-            placeholder="Search CRM..."
-            className="bg-transparent border-none shadow-none outline-none text-[13px] text-[#111827] w-full placeholder:text-[#9ca3af] font-medium"
-          />
+    <div className="flex h-[72px] items-center justify-between gap-4 px-4 sm:px-6">
+      <div className="flex min-w-0 flex-1 items-center gap-4">
+        <div className="hidden max-w-md flex-1 lg:block">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-text-subtle)]" />
+            <Input
+              type="text"
+              placeholder="Search prospects, companies, and workflows"
+              className="pl-10"
+            />
+          </div>
         </div>
       </div>
 
-      {/* Right Section */}
-      <div className="flex items-center gap-2">
-        <button className="p-2.5 rounded-xl hover:bg-[#f3f4f6] transition-all group text-[#6b7280]">
-          <HelpCircle className="w-[18px] h-[18px]" />
-        </button>
-        
-        <button className="p-2.5 rounded-xl hover:bg-[#f3f4f6] transition-all group relative text-[#6b7280]">
-          <Bell className="w-[18px] h-[18px]" />
-          <span className="absolute top-3 right-3 w-2 h-2 bg-[#ef4444] border-2 border-white rounded-full" />
+      <div className="flex items-center gap-1 sm:gap-2">
+        <button className="rounded-xl p-2 text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-subtle)] hover:text-[var(--color-text)]">
+          <HelpCircle className="h-4 w-4" />
         </button>
 
-        <div className="w-[1px] h-6 bg-[#e5e7eb] mx-3" />
+        <button className="group relative rounded-xl p-2 text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-subtle)] hover:text-[var(--color-text)]">
+          <Bell className="h-4 w-4" />
+          <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full border border-white bg-[var(--color-danger)]" />
+        </button>
 
-        <button className="flex items-center gap-3 pl-2 pr-1.5 py-1.5 rounded-xl hover:bg-[#f3f4f6] transition-all">
-          <div className="text-right hidden md:block">
-            <p className="text-[12px] font-bold text-[#111827] leading-none mb-0.5">Puneet Shivhare</p>
-            <p className="text-[10px] font-medium text-[#6b7280]">Sales Intelligence</p>
+        <div className="mx-1 hidden h-5 w-px bg-[var(--color-border)] sm:block" />
+
+        <button className="flex items-center gap-3 rounded-2xl border border-[var(--color-border)] bg-white px-2 py-1.5 transition hover:bg-[var(--color-surface-subtle)]">
+          <div className="hidden text-right sm:block">
+            <p className="text-sm font-semibold leading-none text-[var(--color-text)]">{user?.email ?? "Workspace user"}</p>
+            <p className="mt-1 text-xs text-[var(--color-text-subtle)]">Authenticated session</p>
           </div>
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#2563eb]/10 to-[#2563eb]/20 flex items-center justify-center border border-[#2563eb]/10 overflow-hidden shadow-sm">
-            <User className="w-5 h-5 text-[#2563eb]" />
+          <div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-subtle)]">
+            <User className="h-4 w-4 text-[var(--color-text-muted)]" />
           </div>
         </button>
       </div>

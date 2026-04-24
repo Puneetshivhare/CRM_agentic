@@ -22,6 +22,7 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models.campaign import Campaign
 from app.models.prospect import Prospect
+from app.utils.logger import trace_logic
 
 logger = logging.getLogger("agentic_crm")
 router = APIRouter(prefix="/api/campaigns", tags=["campaigns"])
@@ -103,6 +104,7 @@ async def list_campaigns(
     user_id: int = Depends(get_current_user_id),
 ) -> PaginatedCampaignsResponse:
     """List campaigns for the current user."""
+    trace_logic(logger, "campaigns.list.request", user_id=user_id, page=page, per_page=per_page)
     query = db.query(Campaign).filter(Campaign.user_id == user_id)
 
     total = query.count()
@@ -161,6 +163,7 @@ async def create_campaign(
     db.refresh(campaign)
 
     logger.info(f"Created campaign {campaign.campaign_id} for user {user_id}")
+    trace_logic(logger, "campaigns.create.success", user_id=user_id, campaign_id=campaign.campaign_id, name=campaign.name)
     return CampaignResponse.from_orm(campaign)
 
 
@@ -219,6 +222,7 @@ async def delete_campaign(
     db.commit()
 
     logger.info(f"Deleted campaign {campaign_id} for user {user_id}")
+    trace_logic(logger, "campaigns.delete.success", user_id=user_id, campaign_id=campaign_id)
 
 
 @router.post("/{campaign_id}/enroll", response_model=EnrollResponse)

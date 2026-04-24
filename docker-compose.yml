@@ -85,8 +85,10 @@ services:
     container_name: agentic-crm-backend
     restart: unless-stopped
     environment:
-      # LOCAL: PostgreSQL
-      DATABASE_URL: postgresql://crm_user:${DB_PASSWORD:-crm_password}@postgres:5432/agentic_crm
+      # Database target
+      ACTIVE_DB_PROVIDER: ${ACTIVE_DB_PROVIDER:-local}
+      LOCAL_DATABASE_URL: ${LOCAL_DATABASE_URL:-postgresql://crm_user:${DB_PASSWORD:-crm_password}@postgres:5432/agentic_crm}
+      SUPABASE_DATABASE_URL: ${SUPABASE_DATABASE_URL:-${DATABASE_URL}}
 
       # Redis (internal Docker hostname)
       REDIS_URL: redis://redis:6379
@@ -98,10 +100,12 @@ services:
       # API keys
       GEMINI_API_KEY: ${GEMINI_API_KEY}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
 
       # Supabase (optional, for future auth integration)
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_KEY: ${SUPABASE_KEY:-}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
 
       # JWT & Security
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_this_to_a_32_char_secret_key}
@@ -111,6 +115,18 @@ services:
       # App config
       ENVIRONMENT: development
       LOG_LEVEL: INFO
+      DEBUG_TRACE_ENABLED: ${DEBUG_TRACE_ENABLED:-true}
+      CRAWL_PROVIDER: ${CRAWL_PROVIDER:-crawl4ai}
+      CRAWL_BROWSER_TYPE: ${CRAWL_BROWSER_TYPE:-chromium}
+      CRAWL_HEADLESS: ${CRAWL_HEADLESS:-true}
+      CRAWL_TEXT_MODE: ${CRAWL_TEXT_MODE:-true}
+      CRAWL_LIGHT_MODE: ${CRAWL_LIGHT_MODE:-false}
+      CRAWL_HTTP_FALLBACK_ENABLED: ${CRAWL_HTTP_FALLBACK_ENABLED:-true}
+      CRAWL_RESPECT_ROBOTS_TXT: ${CRAWL_RESPECT_ROBOTS_TXT:-true}
+      CRAWL_VERBOSE: ${CRAWL_VERBOSE:-false}
+      CRAWL_USER_AGENT: ${CRAWL_USER_AGENT:-AgenticCRMResearchBot/1.0}
+      CRAWL_WORD_COUNT_THRESHOLD: ${CRAWL_WORD_COUNT_THRESHOLD:-10}
+      CRAWL_WAIT_FOR: ${CRAWL_WAIT_FOR:-}
       ALLOWED_ORIGINS: http://localhost:3005
       RATE_LIMIT_PER_MINUTE: 100
       DAILY_GEMINI_TOKENS: 1000000

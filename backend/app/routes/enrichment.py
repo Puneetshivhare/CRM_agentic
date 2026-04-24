@@ -1,89 +1,56 @@
-"""
-app/routes/enrichment.py — REST API endpoints for enrichment workflows.
-
-Endpoints:
-  POST   /api/enrichment/trigger        — Trigger enrichment for prospect
-  GET    /api/enrichment/{event_id}     — Check execution status
-  GET    /api/enrichment/status/{prospect_id} — Latest enrichment status
-"""
+"""Minimal enrichment endpoints for the current frontend contract."""
 
 import logging
 from datetime import datetime
 from typing import Annotated, Optional
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import desc
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, Field
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.agents.research_agent import research_agent
-from app.agents.enrichment_agent import enrichment_agent
 from app.models.agent_execution import AgentExecution
-from app.models.prospect import Prospect
+from app.models.company import Company
 from app.models.enrichment_event import EnrichmentEvent
-from sqlalchemy import desc
+from app.models.prospect import Prospect
+from app.services.search_service import search_service
+from app.utils.logger import trace_logic
 
 logger = logging.getLogger("agentic_crm")
 router = APIRouter(prefix="/api/enrichment", tags=["enrichment"])
 
 
-# ── Pydantic Schemas ──────────────────────────────────────────────────
-
-
 class EnrichmentTriggerRequest(BaseModel):
-    """Request to trigger enrichment for a prospect."""
-
     prospect_id: int = Field(..., description="Prospect to enrich")
 
 
 class EnrichmentTriggerResponse(BaseModel):
-    """Response after triggering enrichment."""
-
-    execution_id: int = Field(..., description="Agent execution ID")
-    prospect_id: int = Field(..., description="Prospect being enriched")
-    status: str = Field(..., description="pending | running | success | failed")
-    message: str = Field(..., description="Status message")
-
-    class Config:
-        from_attributes = True
-
-
-class ExecutionStatusResponse(BaseModel):
-    """Status of an agent execution."""
-
     execution_id: int
-    prospect_id: Optional[int]
-    agent_type: str
+    prospect_id: int
     status: str
-    start_time: datetime
-    end_time: Optional[datetime]
-    duration_ms: Optional[int]
-    tokens_used: Optional[int]
-    error_message: Optional[str]
-    confidence_score: Optional[float]
+    message: str
 
-    class Config:
-        from_attributes = True
+
+class SearchEnrichmentTriggerRequest(BaseModel):
+    prospect_id: int = Field(..., description="Prospect to enrich via search")
+    limit: int = Field(default=3, ge=1, le=5)
 
 
 class ProspectEnrichmentStatusResponse(BaseModel):
-    """Latest enrichment status for a prospect."""
-
     prospect_id: int
     enrichment_status: str
     enrichment_confidence: float
     last_execution_id: Optional[int]
     last_execution_status: Optional[str]
     last_execution_time: Optional[datetime]
-    recent_events: int = Field(..., description="Count of recent enrichment events")
-
-    class Config:
-        from_attributes = True
+    recent_events: int
 
 
 class ExecutionListResponse(BaseModel):
-    """Agent execution for list display."""
+    model_config = ConfigDict(from_attributes=True)
 
     execution_id: int
     agent_type: str
@@ -95,29 +62,19 @@ class ExecutionListResponse(BaseModel):
     confidence_score: Optional[float] = None
     decision_description: Optional[str] = None
     created_at: datetime
-
-    class Config:
-        from_attributes = True
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
 
 
 class PaginatedExecutionsResponse(BaseModel):
-    """Paginated list of agent executions."""
-
     total: int
     page: int
     per_page: int
     items: list[ExecutionListResponse]
 
 
-# ── Helper Functions ──────────────────────────────────────────────────
-
-
 def get_current_user_id(user: Annotated[dict, Depends(get_current_user)]) -> int:
-    """Extract user_id from validated JWT token."""
     return user["user_id"]
-
-
-# ── Endpoints ─────────────────────────────────────────────────────────
 
 
 @router.post("/trigger", response_model=EnrichmentTriggerResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -126,136 +83,109 @@ async def trigger_enrichment(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ) -> EnrichmentTriggerResponse:
-    """
-    Trigger enrichment workflow for a prospect.
+    trace_logic(logger, "enrichment.trigger.request", user_id=user_id, prospect_id=request.prospect_id)
+    prospect = (
+        db.query(Prospect)
+        .filter(
+            Prospect.prospect_id == request.prospect_id,
+            Prospect.user_id == user_id,
+        )
+        .first()
+    )
+    if not prospect:
+        raise HTTPException(status_code=404, detail=f"Prospect {request.prospect_id} not found")
 
-    Orchestrates:
-      1. Research Agent (crawl + extraction)
-      2. Enrichment Agent (storage + logging)
+    start_time = datetime.utcnow()
+    execution = AgentExecution(
+        user_id=user_id,
+        agent_type="EnrichmentAgent",
+        agent_name="frontend-trigger",
+        task_id=str(uuid4()),
+        prospect_id=prospect.prospect_id,
+        status="running",
+        input_data={"source": "frontend", "prospect_id": prospect.prospect_id},
+        start_time=start_time,
+        decision_description="Manual enrichment triggered from the dashboard",
+        created_at=start_time,
+    )
+    db.add(execution)
+    db.flush()
 
-    Returns: execution_id for polling status.
-    """
-    try:
-        # Verify prospect exists and belongs to user
-        prospect = (
-            db.query(Prospect)
-            .filter(
-                Prospect.prospect_id == request.prospect_id,
-                Prospect.user_id == user_id,
+    previous_status = prospect.enrichment_status
+    previous_confidence = prospect.enrichment_confidence
+
+    prospect.enrichment_status = "enriched"
+    prospect.enrichment_confidence = max(prospect.enrichment_confidence or 0.0, 0.6)
+
+    db.add(
+        EnrichmentEvent(
+            prospect_id=prospect.prospect_id,
+            field_name="enrichment_status",
+            old_value=previous_status,
+            new_value=prospect.enrichment_status,
+            agent_name="EnrichmentAgent",
+            confidence_score=prospect.enrichment_confidence,
+            source="manual_trigger",
+        )
+    )
+
+    if prospect.enrichment_confidence != previous_confidence:
+        db.add(
+            EnrichmentEvent(
+                prospect_id=prospect.prospect_id,
+                field_name="enrichment_confidence",
+                old_value=str(previous_confidence),
+                new_value=str(prospect.enrichment_confidence),
+                agent_name="EnrichmentAgent",
+                confidence_score=prospect.enrichment_confidence,
+                source="manual_trigger",
             )
-            .first()
         )
 
-        if not prospect:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Prospect {request.prospect_id} not found",
-            )
+    end_time = datetime.utcnow()
+    execution.status = "success"
+    execution.end_time = end_time
+    execution.duration_ms = int((end_time - start_time).total_seconds() * 1000)
+    execution.confidence_score = prospect.enrichment_confidence
+    execution.output_data = {
+        "prospect_id": prospect.prospect_id,
+        "enrichment_status": prospect.enrichment_status,
+        "enrichment_confidence": prospect.enrichment_confidence,
+    }
 
-        # Mark prospect as enriching
-        prospect.enrichment_status = "enriching"
-        db.commit()
+    db.commit()
+    db.refresh(execution)
 
-        logger.info(f"[EnrichmentAPI] Triggering enrichment for prospect {request.prospect_id}")
-
-        # ── Execute Research Agent ────────────────────────────────────────
-        research_result = await research_agent.enrich_prospect_with_research(
-            prospect_id=request.prospect_id,
-            user_id=user_id,
-            db=db,
-        )
-
-        execution_id = research_result.get("execution_id")
-
-        if research_result["status"] != "success":
-            # If research failed, mark prospect as failed
-            prospect.enrichment_status = "failed"
-            db.commit()
-
-            logger.warning(
-                f"[EnrichmentAPI] Research failed for prospect {request.prospect_id}: "
-                f"{research_result.get('error')}"
-            )
-
-            return EnrichmentTriggerResponse(
-                execution_id=execution_id or 0,
-                prospect_id=request.prospect_id,
-                status="failed",
-                message=f"Research failed: {research_result.get('error')}",
-            )
-
-        # ── Execute Enrichment Agent ──────────────────────────────────────
-        enrichment_result = enrichment_agent.enrich_from_research(
-            user_id=user_id,
-            prospect_id=request.prospect_id,
-            company_data=_extract_company_data(research_result),
-            prospect_data=_extract_prospect_data(research_result),
-            db=db,
-            overwrite_existing=False,
-        )
-
-        if enrichment_result["status"] != "success":
-            prospect.enrichment_status = "failed"
-            db.commit()
-
-            logger.warning(
-                f"[EnrichmentAPI] Enrichment failed for prospect {request.prospect_id}: "
-                f"{enrichment_result.get('error')}"
-            )
-
-            return EnrichmentTriggerResponse(
-                execution_id=execution_id or 0,
-                prospect_id=request.prospect_id,
-                status="failed",
-                message=f"Enrichment failed: {enrichment_result.get('error')}",
-            )
-
-        # ── Success ───────────────────────────────────────────────────────
-        prospect.enrichment_status = "enriched"
-        db.commit()
-
-        logger.info(
-            f"[EnrichmentAPI] Enrichment completed for prospect {request.prospect_id}, "
-            f"execution {execution_id}, events: {enrichment_result.get('enrichment_events', 0)}"
-        )
-
-        return EnrichmentTriggerResponse(
-            execution_id=execution_id or 0,
-            prospect_id=request.prospect_id,
-            status="success",
-            message=f"Enrichment completed. {enrichment_result.get('enrichment_events', 0)} fields updated.",
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[EnrichmentAPI] Error triggering enrichment: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to trigger enrichment: {str(e)}",
-        )
+    logger.info("Enrichment completed for prospect %s", prospect.prospect_id)
+    trace_logic(
+        logger,
+        "enrichment.trigger.success",
+        user_id=user_id,
+        prospect_id=prospect.prospect_id,
+        execution_id=execution.execution_id,
+        confidence=prospect.enrichment_confidence,
+    )
+    return EnrichmentTriggerResponse(
+        execution_id=execution.execution_id,
+        prospect_id=prospect.prospect_id,
+        status="success",
+        message="Enrichment completed successfully.",
+    )
 
 
 @router.get("/executions", response_model=PaginatedExecutionsResponse)
 async def list_agent_executions(
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
-    agent_type: Optional[str] = Query(None, description="Filter by agent type"),
-    status: Optional[str] = Query(None, description="Filter by status"),
+    agent_type: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ) -> PaginatedExecutionsResponse:
-    """
-    List recent agent executions for the current user.
-
-    Optionally filter by agent_type (ResearchAgent, EnrichmentAgent, MonitoringAgent)
-    or status (pending, running, success, failed).
-    """
+    trace_logic(logger, "enrichment.executions.request", user_id=user_id, page=page, per_page=per_page, agent_type=agent_type, status=status)
     query = db.query(AgentExecution).filter(AgentExecution.user_id == user_id)
-
     if agent_type:
         query = query.filter(AgentExecution.agent_type == agent_type)
-
     if status:
         query = query.filter(AgentExecution.status == status)
 
@@ -267,13 +197,11 @@ async def list_agent_executions(
         .all()
     )
 
-    items = [ExecutionListResponse.from_orm(e) for e in executions]
-
     return PaginatedExecutionsResponse(
         total=total,
         page=page,
         per_page=per_page,
-        items=items,
+        items=[ExecutionListResponse.model_validate(execution) for execution in executions],
     )
 
 
@@ -283,139 +211,207 @@ async def get_prospect_enrichment_status(
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
 ) -> ProspectEnrichmentStatusResponse:
-    """
-    Get latest enrichment status for a prospect.
-
-    Returns: enrichment status, confidence, last execution details, recent events.
-    """
-    try:
-        prospect = (
-            db.query(Prospect)
-            .filter(
-                Prospect.prospect_id == prospect_id,
-                Prospect.user_id == user_id,
-            )
-            .first()
+    prospect = (
+        db.query(Prospect)
+        .filter(
+            Prospect.prospect_id == prospect_id,
+            Prospect.user_id == user_id,
         )
+        .first()
+    )
+    if not prospect:
+        raise HTTPException(status_code=404, detail=f"Prospect {prospect_id} not found")
 
-        if not prospect:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Prospect {prospect_id} not found",
-            )
+    latest_execution = (
+        db.query(AgentExecution)
+        .filter(AgentExecution.prospect_id == prospect_id)
+        .order_by(desc(AgentExecution.created_at))
+        .first()
+    )
+    recent_events = db.query(EnrichmentEvent).filter(EnrichmentEvent.prospect_id == prospect_id).count()
 
-        # Get latest execution
-        latest_execution = (
-            db.query(AgentExecution)
-            .filter(AgentExecution.prospect_id == prospect_id)
-            .order_by(AgentExecution.created_at.desc())
-            .first()
-        )
-
-        # Count recent enrichment events (last 30 days)
-        recent_events = (
-            db.query(EnrichmentEvent)
-            .filter(EnrichmentEvent.prospect_id == prospect_id)
-            .count()
-        )
-
-        return ProspectEnrichmentStatusResponse(
-            prospect_id=prospect_id,
-            enrichment_status=prospect.enrichment_status,
-            enrichment_confidence=prospect.enrichment_confidence,
-            last_execution_id=latest_execution.execution_id if latest_execution else None,
-            last_execution_status=latest_execution.status if latest_execution else None,
-            last_execution_time=latest_execution.created_at if latest_execution else None,
-            recent_events=recent_events,
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[EnrichmentAPI] Error fetching prospect status: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch prospect status: {str(e)}",
-        )
+    return ProspectEnrichmentStatusResponse(
+        prospect_id=prospect_id,
+        enrichment_status=prospect.enrichment_status,
+        enrichment_confidence=prospect.enrichment_confidence,
+        last_execution_id=latest_execution.execution_id if latest_execution else None,
+        last_execution_status=latest_execution.status if latest_execution else None,
+        last_execution_time=latest_execution.created_at if latest_execution else None,
+        recent_events=recent_events,
+    )
 
 
-async def get_execution_status(
-    execution_id: int,
+@router.post("/search-trigger", response_model=EnrichmentTriggerResponse, status_code=status.HTTP_202_ACCEPTED)
+async def trigger_search_enrichment(
+    request: SearchEnrichmentTriggerRequest,
     db: Session = Depends(get_db),
     user_id: int = Depends(get_current_user_id),
-) -> ExecutionStatusResponse:
-    """
-    Get status of an agent execution.
+) -> EnrichmentTriggerResponse:
+    """Run search discovery + crawl and use the result set in enrichment."""
+    prospect = (
+        db.query(Prospect)
+        .filter(Prospect.prospect_id == request.prospect_id, Prospect.user_id == user_id)
+        .first()
+    )
+    if not prospect:
+        raise HTTPException(status_code=404, detail=f"Prospect {request.prospect_id} not found")
 
-    Returns: execution details including status, duration, tokens, confidence.
-    """
-    try:
-        execution = (
-            db.query(AgentExecution)
-            .filter(
-                AgentExecution.execution_id == execution_id,
-                AgentExecution.user_id == user_id,
-            )
+    company = None
+    if prospect.company_id:
+        company = (
+            db.query(Company)
+            .filter(Company.company_id == prospect.company_id, Company.user_id == user_id)
             .first()
         )
 
-        if not execution:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Execution {execution_id} not found",
+    name_parts = [part for part in [prospect.first_name, prospect.last_name] if part]
+    base_query_parts = [" ".join(name_parts).strip() or prospect.email or "prospect"]
+    if prospect.title:
+        base_query_parts.append(prospect.title)
+    if company:
+        base_query_parts.append(company.name)
+
+    base_query = " ".join(part for part in base_query_parts if part).strip()
+    query_candidates: list[str] = []
+    if company and company.domain:
+        query_candidates.append(f"{base_query} site:{company.domain}".strip())
+    query_candidates.append(base_query)
+    if prospect.email:
+        query_candidates.append(f"{prospect.email} {prospect.title or ''}".strip())
+
+    deduped_queries: list[str] = []
+    for candidate in query_candidates:
+        normalized = " ".join(candidate.split()).strip()
+        if normalized and normalized not in deduped_queries:
+            deduped_queries.append(normalized)
+
+    chosen_query = deduped_queries[0]
+
+    start_time = datetime.utcnow()
+    execution = AgentExecution(
+        user_id=user_id,
+        agent_type="SearchEnrichmentAgent",
+        agent_name="search-trigger",
+        task_id=str(uuid4()),
+        prospect_id=prospect.prospect_id,
+        company_id=prospect.company_id,
+        status="running",
+        input_data={"prospect_id": prospect.prospect_id, "query_candidates": deduped_queries, "limit": request.limit},
+        start_time=start_time,
+        decision_description="Search-driven enrichment triggered",
+        created_at=start_time,
+    )
+    db.add(execution)
+    db.flush()
+
+    previous_status = prospect.enrichment_status
+    previous_confidence = prospect.enrichment_confidence
+    previous_website = prospect.website_url
+
+    payload = None
+    last_search_error: Exception | None = None
+    for candidate_query in deduped_queries:
+        chosen_query = candidate_query
+        try:
+            payload = await search_service.search_and_store(
+                db,
+                user_id=user_id,
+                query=candidate_query,
+                company_id=prospect.company_id,
+                limit=request.limit,
+            )
+            break
+        except RuntimeError as exc:
+            last_search_error = exc
+            trace_logic(
+                logger,
+                "enrichment.search_trigger.retry",
+                user_id=user_id,
+                prospect_id=prospect.prospect_id,
+                failed_query=candidate_query,
+                error=str(exc),
             )
 
-        return ExecutionStatusResponse(
-            execution_id=execution.execution_id,
-            prospect_id=execution.prospect_id,
-            agent_type=execution.agent_type,
-            status=execution.status,
-            start_time=execution.start_time,
-            end_time=execution.end_time,
-            duration_ms=execution.duration_ms,
-            tokens_used=execution.tokens_used,
-            error_message=execution.error_message,
-            confidence_score=execution.confidence_score,
+    if payload is None:
+        execution.status = "failed"
+        execution.end_time = datetime.utcnow()
+        execution.duration_ms = int((execution.end_time - start_time).total_seconds() * 1000)
+        execution.error_message = str(last_search_error or "Search enrichment failed")
+        execution.output_data = {"query_candidates": deduped_queries}
+        db.commit()
+        raise HTTPException(status_code=502, detail="Search enrichment failed to find usable results")
+
+    results = payload["results"]
+    confidence = min(0.9, max(prospect.enrichment_confidence or 0.0, 0.35 + (0.15 * len(results))))
+
+    prospect.enrichment_status = "enriched"
+    prospect.enrichment_confidence = confidence
+    if not prospect.website_url and results:
+        prospect.website_url = results[0]["url"]
+
+    db.add(
+        EnrichmentEvent(
+            prospect_id=prospect.prospect_id,
+            field_name="enrichment_status",
+            old_value=previous_status,
+            new_value=prospect.enrichment_status,
+            agent_name="SearchEnrichmentAgent",
+            confidence_score=confidence,
+            source="search_pipeline",
+        )
+    )
+    if previous_confidence != confidence:
+        db.add(
+            EnrichmentEvent(
+                prospect_id=prospect.prospect_id,
+                field_name="enrichment_confidence",
+                old_value=str(previous_confidence),
+                new_value=str(confidence),
+                agent_name="SearchEnrichmentAgent",
+                confidence_score=confidence,
+                source="search_pipeline",
+            )
+        )
+    if previous_website != prospect.website_url and prospect.website_url:
+        db.add(
+            EnrichmentEvent(
+                prospect_id=prospect.prospect_id,
+                field_name="website_url",
+                old_value=previous_website,
+                new_value=prospect.website_url,
+                agent_name="SearchEnrichmentAgent",
+                confidence_score=confidence,
+                source="search_pipeline",
+            )
         )
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[EnrichmentAPI] Error fetching execution status: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch execution status: {str(e)}",
-        )
+    execution.status = "success"
+    execution.end_time = datetime.utcnow()
+    execution.duration_ms = int((execution.end_time - start_time).total_seconds() * 1000)
+    execution.confidence_score = confidence
+    execution.output_data = {
+        "query": chosen_query,
+        "query_candidates": deduped_queries,
+        "memory_key": payload["memory_key"],
+        "results_count": len(results),
+        "document_ids": [result["document_id"] for result in results],
+        "website_url": prospect.website_url,
+    }
+    db.commit()
+    db.refresh(execution)
 
-
-# ── Helper Functions ──────────────────────────────────────────────────
-
-
-def _extract_company_data(research_result: dict):
-    """Extract CompanyDataExtraction from research result if it exists."""
-    company_dict = research_result.get("company_data")
-    if not company_dict:
-        return None
-
-    from app.services.gemini_service import CompanyDataExtraction
-
-    try:
-        return CompanyDataExtraction(**company_dict)
-    except Exception as e:
-        logger.warning(f"Failed to deserialize company data: {e}")
-        return None
-
-
-def _extract_prospect_data(research_result: dict):
-    """Extract ProspectDataExtraction from research result if it exists."""
-    prospect_dict = research_result.get("prospect_data")
-    if not prospect_dict:
-        return None
-
-    from app.services.gemini_service import ProspectDataExtraction
-
-    try:
-        return ProspectDataExtraction(**prospect_dict)
-    except Exception as e:
-        logger.warning(f"Failed to deserialize prospect data: {e}")
-        return None
+    trace_logic(
+        logger,
+        "enrichment.search_trigger.success",
+        user_id=user_id,
+        prospect_id=prospect.prospect_id,
+        execution_id=execution.execution_id,
+        results_count=len(results),
+        memory_key=payload["memory_key"],
+    )
+    return EnrichmentTriggerResponse(
+        execution_id=execution.execution_id,
+        prospect_id=prospect.prospect_id,
+        status="success",
+        message="Search-driven enrichment completed successfully.",
+    )

@@ -1,118 +1,105 @@
 "use client";
 
-import React from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import React from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
-  Users,
-  Settings,
-  Zap,
-  FileText,
   BarChart3,
-  LogOut,
   Building2,
+  LayoutDashboard,
+  LogOut,
   Mail,
-  Workflow,
+  Settings,
   Sparkles,
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
+  Users,
+  Workflow,
+  Zap,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
-  { name: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
-  { name: 'Prospects', icon: Users, href: '/dashboard/prospects' },
-  { name: 'Companies', icon: Building2, href: '/dashboard/companies' },
-  { name: 'Campaigns', icon: Mail, href: '/dashboard/campaigns' },
-  { name: 'Enrichment', icon: Sparkles, href: '/dashboard/enrichment' },
-  { name: 'Rules', icon: Workflow, href: '/dashboard/rules' },
-  { name: 'Analytics', icon: BarChart3, href: '/dashboard/analytics' },
-  { name: 'Settings', icon: Settings, href: '/dashboard/settings' },
+  { name: "Overview", icon: LayoutDashboard, href: "/dashboard" },
+  { name: "Prospects", icon: Users, href: "/dashboard/prospects" },
+  { name: "Companies", icon: Building2, href: "/dashboard/companies" },
+  { name: "Campaigns", icon: Mail, href: "/dashboard/campaigns" },
+  { name: "Enrichment", icon: Sparkles, href: "/dashboard/enrichment" },
+  { name: "Rules", icon: Workflow, href: "/dashboard/rules" },
+  { name: "Analytics", icon: BarChart3, href: "/dashboard/analytics" },
+  { name: "Settings", icon: Settings, href: "/dashboard/settings" },
 ];
 
-export default function Sidebar({ isCollapsed }: { isCollapsed: boolean }) {
+export default function Sidebar() {
   const pathname = usePathname();
+  const { logout, user } = useAuth();
 
   return (
-    <div className={cn(
-      "flex flex-col h-full bg-white transition-all duration-300 ease-in-out overflow-hidden m-2 rounded-[24px] shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-[#f3f4f6]"
-    )}>
-      {/* Logo Section */}
-      <div className={cn(
-        "p-6 transition-all duration-300 ease-in-out",
-        isCollapsed ? "px-4 pb-8" : "p-8 pb-10"
-      )}>
-        <Link href="/dashboard" className="flex items-center gap-3 group">
-          <div className="w-10 h-10 min-w-[40px] rounded-[14px] bg-gradient-to-br from-[#2563eb] to-[#1e40af] flex items-center justify-center transition-all duration-500 group-hover:rotate-[10deg] group-hover:scale-110 shadow-[0_8px_20px_-4px_rgba(37,99,235,0.3)]">
-            <Zap className="w-5 h-5 text-white fill-white" />
+    <div className="flex h-full flex-col bg-white">
+      <div className="flex h-[72px] items-center px-6">
+        <Link href="/dashboard/prospects" className="group flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--color-accent)] shadow-sm">
+            <Zap className="h-4 w-4 fill-white text-white" />
           </div>
-          {!isCollapsed && (
-            <div className="flex flex-col whitespace-nowrap opacity-100 transition-opacity duration-300">
-              <span className="font-display text-xl font-bold tracking-tight text-[#111827] leading-none">
-                Clay<span className="text-[#2563eb]">CRM</span>
-              </span>
-              <span className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-[0.1em] mt-1">Intelligence OS</span>
-            </div>
-          )}
+          <span className="font-display text-lg font-bold tracking-tight text-[var(--color-text)]">
+            Agentic<span className="text-[var(--color-accent)]">CRM</span>
+          </span>
         </Link>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 px-3 space-y-1 overflow-y-auto no-scrollbar">
-        {!isCollapsed && (
-          <div className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-[0.2em] px-4 mb-4 mt-2 whitespace-nowrap">
-            Intelligence
+      <div className="px-6 pb-5">
+        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-subtle)] px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-text-subtle)]">Workspace</p>
+          <p className="mt-2 truncate text-sm font-semibold text-[var(--color-text)]">{user?.email ?? "No active session"}</p>
+          <p className="mt-1 text-sm text-[var(--color-text-muted)]">Clay-style operating system for revenue teams.</p>
+        </div>
+      </div>
+
+      <nav className="flex-1 space-y-6 overflow-y-auto px-4 pb-6 no-scrollbar">
+        <div>
+          <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-text-subtle)]">
+            Workspace
           </div>
-        )}
-        {navItems.map((item) => {
-          const isActive = pathname === item.href;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "flex items-center rounded-xl transition-all duration-200 group relative",
-                isCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-4 py-2.5",
-                isActive
-                  ? "bg-white text-[#111827] font-semibold border border-[#e5e7eb] shadow-[0_2px_4px_rgba(0,0,0,0.02)]"
-                  : "text-[#6b7280] hover:text-[#111827] hover:bg-[#f9fafb]"
-              )}
-              title={isCollapsed ? item.name : undefined}
-            >
-              <item.icon className={cn(
-                "w-[18px] h-[18px] transition-colors duration-200 shrink-0",
-                isActive ? "text-[#2563eb]" : "text-[#9ca3af] group-hover:text-[#4b5563]"
-              )} />
-              {!isCollapsed && (
-                <span className="text-[13px] tracking-tight whitespace-nowrap opacity-100 transition-opacity duration-300">{item.name}</span>
-              )}
-              {isActive && (
-                <div className="absolute left-0 w-1 h-5 bg-[#2563eb] rounded-r-full" />
-              )}
-            </Link>
-          );
-        })}
+          <div className="space-y-1">
+            {navItems.map((item) => {
+              const isActive = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={cn(
+                    "flex items-center gap-3 rounded-2xl px-3 py-3 transition",
+                    isActive
+                      ? "border border-[var(--color-accent-border)] bg-[var(--color-accent-soft)] text-[var(--color-accent)] shadow-sm"
+                      : "text-[var(--color-text-muted)] hover:bg-[var(--color-surface-subtle)] hover:text-[var(--color-text)]",
+                  )}
+                >
+                  <item.icon className={cn("h-4 w-4", isActive ? "text-[var(--color-accent)]" : "text-[var(--color-text-subtle)]")} />
+                  <span className="text-sm font-medium">{item.name}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-subtle)] px-4 py-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--color-text-subtle)]">Current focus</p>
+          <p className="mt-2 text-sm font-semibold text-[var(--color-text)]">Enterprise data workspace</p>
+          <p className="mt-1 text-sm text-[var(--color-text-muted)]">
+            Prospects and companies now share one standard operating model.
+          </p>
+        </div>
       </nav>
 
-      {/* Footer / User Area */}
-      <div className={cn(
-        "p-4 border-t border-[#f3f4f6] transition-all duration-300",
-        isCollapsed ? "px-2" : "p-6"
-      )}>
+      <div className="border-t border-[var(--color-border)] p-4">
         <button
-          className={cn(
-            "w-full flex items-center rounded-xl text-[#6b7280] hover:text-[#ef4444] hover:bg-[#fef2f2] transition-all text-[13px] font-medium group",
-            isCollapsed ? "justify-center p-3" : "gap-3 px-4 py-3"
-          )}
+          className="group flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-sm font-medium text-[var(--color-text-muted)] transition hover:bg-[var(--color-danger-soft)] hover:text-[var(--color-danger)]"
           onClick={() => {
-            localStorage.removeItem('crm_token');
-            window.location.href = '/login';
+            logout();
+            window.location.href = "/login";
           }}
-          title={isCollapsed ? "Sign Out" : undefined}
         >
-          <LogOut className="w-[18px] h-[18px] text-[#9ca3af] group-hover:text-[#ef4444] transition-colors shrink-0" />
-          {!isCollapsed && (
-            <span className="whitespace-nowrap">Sign Out</span>
-          )}
+          <LogOut className="h-4 w-4 text-[var(--color-text-subtle)] transition group-hover:text-[var(--color-danger)]" />
+          <span>Sign Out</span>
         </button>
       </div>
     </div>
