@@ -32,7 +32,7 @@ build/
 .eslintcache
 
 # Environment
-# .env  <-- Keeping this commented since it's already tracked and user might want it
+.env
 
 # Project Specific Junk
 .graphify_*
