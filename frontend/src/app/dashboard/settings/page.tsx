@@ -81,14 +81,48 @@ export default function SettingsPage() {
                 </div>
               </div>
             </div>
+          ) : activeTab === "notifications" ? (
+            <div className="mt-6 space-y-4">
+              {[
+                "Email digests for agent completions",
+                "Browser push notifications for high lead scores",
+                "Weekly automation performance reports",
+                "Real-time alerts for enrichment errors"
+              ].map((label, i) => (
+                <div key={i} className="flex items-center justify-between rounded-xl border border-[var(--color-border)] bg-white p-4">
+                  <span className="text-sm font-medium text-[var(--color-text)]">{label}</span>
+                  <div className="h-5 w-10 rounded-full bg-[var(--color-accent)] p-1">
+                    <div className="h-3 w-3 translate-x-5 rounded-full bg-white transition" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : activeTab === "security" ? (
+            <div className="mt-6 space-y-6">
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="space-y-4">
+                  <p className="text-sm font-semibold text-[var(--color-text)]">Change password</p>
+                  <Input type="password" placeholder="Current password" />
+                  <Input type="password" placeholder="New password" />
+                  <Input type="password" placeholder="Confirm new password" />
+                </div>
+                <div className="space-y-4">
+                  <p className="text-sm font-semibold text-[var(--color-text)]">Two-factor authentication</p>
+                  <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-subtle)] p-4">
+                    <p className="text-sm text-[var(--color-text-muted)]">2FA is currently disabled. Protect your account with an additional security layer.</p>
+                    <Button variant="secondary" className="mt-3 w-full">Enable 2FA</Button>
+                  </div>
+                </div>
+              </div>
+            </div>
           ) : (
             <div className="mt-6 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface-subtle)] p-5">
               <div className="flex items-start gap-3">
                 <Lock className="mt-0.5 h-5 w-5 text-[var(--color-accent)]" />
                 <div>
-                  <p className="font-semibold text-[var(--color-text)]">This section is staged for the next enterprise pass.</p>
+                  <p className="font-semibold text-[var(--color-text)]">Enterprise access required.</p>
                   <p className="mt-1 text-sm text-[var(--color-text-muted)]">
-                    The shell is now standardized, but the deeper behavior for {active.name.toLowerCase()} will be wired once the shared settings model is defined.
+                    The {active.name.toLowerCase()} controls are available on Enterprise plans. Contact your administrator to upgrade your workspace.
                   </p>
                 </div>
               </div>

@@ -104,29 +104,33 @@ class SearchService:
         """Crawl and persist discovered results into documents."""
         stored_results: list[dict[str, Any]] = []
         for position, result in enumerate(results, start=1):
-            crawl_result = await crawl_service.crawl_url(result["url"])
-            document = self._store_document(
-                db=db,
-                user_id=user_id,
-                company_id=company_id,
-                title=result["title"],
-                url=result["url"],
-                snippet=result["snippet"],
-                crawl_result=crawl_result,
-            )
-            stored_results.append(
-                {
-                    "rank": position,
-                    "title": result["title"],
-                    "url": result["url"],
-                    "snippet": result["snippet"],
-                    "source": result["source"],
-                    "document_id": document.document_id,
-                    "status_code": crawl_result.get("status_code"),
-                    "provider": crawl_result.get("metadata", {}).get("provider"),
-                    "text_preview": (crawl_result.get("text") or "")[:280],
-                }
-            )
+            try:
+                crawl_result = await crawl_service.crawl_url(result["url"])
+                document = self._store_document(
+                    db=db,
+                    user_id=user_id,
+                    company_id=company_id,
+                    title=result["title"],
+                    url=result["url"],
+                    snippet=result["snippet"],
+                    crawl_result=crawl_result,
+                )
+                stored_results.append(
+                    {
+                        "rank": position,
+                        "title": result["title"],
+                        "url": result["url"],
+                        "snippet": result["snippet"],
+                        "source": result["source"],
+                        "document_id": document.document_id,
+                        "status_code": crawl_result.get("status_code"),
+                        "provider": crawl_result.get("metadata", {}).get("provider"),
+                        "text_preview": (crawl_result.get("text") or "")[:280],
+                    }
+                )
+            except Exception as exc:
+                logger.warning("Skipping crawl for %s due to error: %s", result["url"], exc)
+                continue
         return stored_results
 
     def build_company_query(

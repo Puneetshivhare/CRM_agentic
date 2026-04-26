@@ -17,6 +17,8 @@ from app.routes import campaigns as campaigns_router
 from app.routes import companies as companies_router
 from app.routes import documents as documents_router
 from app.routes import enrichment as enrichment_router
+from app.routes import hermes as hermes_router
+from app.routes import lead_scores as lead_scores_router
 from app.routes import prospects as prospects_router
 from app.routes import rules as rules_router
 from app.routes import search as search_router
@@ -89,6 +91,8 @@ app.include_router(companies_router.router)
 app.include_router(campaigns_router.router)
 app.include_router(documents_router.router)
 app.include_router(enrichment_router.router)
+app.include_router(hermes_router.router)
+app.include_router(lead_scores_router.router)
 app.include_router(rules_router.router)
 app.include_router(search_router.router)
 

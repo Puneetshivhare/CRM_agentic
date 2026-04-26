@@ -1,0 +1,147 @@
+# Hermes SaaS Guardrails Configuration
+# Restricted operations for Agentic CRM integration
+
+# ─── Core Settings ────────────────────────────────────────────────────────────
+mode: saas
+version: "1.0"
+
+# ─── Allowed Actions (Whitelist) ────────────────────────────────────────────
+# These are the ONLY actions Hermes can perform
+allowed_actions:
+  - web_search          # DDG, Brave, etc. via MCP
+  - web_crawl           # crawl4ai with restrictions
+  - prospect_research   # CRM-specific research
+  - company_enrichment  # Company data enrichment
+  - document_summarization  # Summarize crawled docs
+  - crm_query           # Query CRM via MCP
+  - mcp_invoke          # Call MCP servers
+  - skill_retrieve      # Retrieve learned skills
+  - memory_search       # Search tenant memory
+
+# ─── Blocked Actions (Blacklist - Explicit) ───────────────────────────────────
+# These actions are NEVER allowed
+blocked_actions:
+  - bash_execution
+  - python_execution
+  - file_system_write
+  - file_system_delete
+  - system_commands
+  - network_scanning
+  - port_scanning
+  - code_interpreter
+  - terminal_access
+  - ssh_connect
+  - sftp_transfer
+  - docker_exec
+  - kubectl
+  - aws_cli
+  - gcloud_cli
+  - database_direct_write  # Only via CRM API
+
+# ─── MCP Server Restrictions ──────────────────────────────────────────────────
+allowed_mcp_servers:
+  - crm_backend       # Agentic CRM API
+  - graphify          # Knowledge graph (optional)
+  - web_search        # Search providers
+
+blocked_mcp_servers:
+  - filesystem
+  - terminal
+  - bash
+  - python
+  - system
+  - docker
+  - kubernetes
+  - database_raw
+
+# ─── Web Crawl Restrictions ───────────────────────────────────────────────────
+web_crawl:
+  max_depth: 1                    # No deep crawling
+  max_pages_per_session: 10
+  max_duration_seconds: 60
+  respect_robots_txt: true
+  user_agent: "AgenticCRMResearchBot/1.0"
+  
+  blocked_domains:
+    - *.gov
+    - *.mil
+    - *.edu  # Optional - can configure per tenant
+  
+  blocked_extensions:
+    - .exe
+    - .dll
+    - .sh
+    - .bat
+    - .bin
+    - .zip
+    - .tar.gz
+
+# ─── Web Search Restrictions ─────────────────────────────────────────────────
+web_search:
+  allowed_providers:
+    - brave
+    - duckduckgo
+    - searxng
+  
+  max_results: 10
+  rate_limit_per_minute: 60
+  
+  blocked_query_patterns:
+    - "hack *"
+    - "exploit *"
+    - "*password*"
+    - "*credential*"
+    - "*api_key*"
+    - "*secret*"
+
+# ─── API Rate Limits ───────────────────────────────────────────────────────────
+rate_limits:
+  requests_per_minute: 60
+  requests_per_hour: 1000
+  tokens_per_day: 100000
+  concurrent_tasks: 5
+  max_task_duration_seconds: 120
+
+# ─── Data Isolation ────────────────────────────────────────────────────────────
+tenant_isolation:
+  mode: strict
+  separate_memory: true
+  separate_skills: true
+  separate_logs: true
+  data_encryption: true
+
+# ─── Skill Restrictions ───────────────────────────────────────────────────────
+skills:
+  allow_auto_create: true
+  max_skills_per_tenant: 100
+  blocked_skill_types:
+    - system_administration
+    - code_execution
+    - file_manipulation
+    - network_configuration
+
+# ─── Memory Restrictions ─────────────────────────────────────────────────────
+memory:
+  persist_conversations: true
+  persist_skills: true
+  max_memory_size_mb: 100
+  retention_days: 90
+
+# ─── Logging & Audit ──────────────────────────────────────────────────────────
+logging:
+  level: INFO
+  audit_all_requests: true
+  log_blocked_attempts: true
+  mask_sensitive_data: true
+  
+# ─── Security Headers ──────────────────────────────────────────────────────────
+security:
+  require_api_key: true
+  validate_tenant_header: true
+  cors_origins:
+    - "http://localhost:3005"
+    - "http://localhost:8005"
+  
+  # Content Security
+  block_script_execution: true
+  sanitize_html_output: true

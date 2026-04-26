@@ -59,6 +59,11 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = Field(default=100)
     daily_gemini_tokens: int = Field(default=1_000_000)
     bcrypt_rounds: int = Field(default=12)
+    
+    # Hermes Agent Integration
+    hermes_base_url: str = Field(default="http://hermes:8000")
+    hermes_api_key: str = Field(default="")
+    graphify_url: str = Field(default="")
 
     @property
     def cors_origins(self) -> list[str]:

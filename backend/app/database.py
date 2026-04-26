@@ -12,6 +12,11 @@ logger = logging.getLogger("agentic_crm")
 
 
 def _build_engine(database_url: str) -> Engine:
+    # For Supabase, we need SSL mode
+    connect_args = {}
+    if "supabase" in database_url or "amazonaws.com" in database_url:
+        connect_args["sslmode"] = "require"
+    
     return create_engine(
         database_url,
         pool_size=10,
@@ -19,6 +24,7 @@ def _build_engine(database_url: str) -> Engine:
         pool_pre_ping=True,
         pool_recycle=3600,
         echo=(settings.environment == "development"),
+        connect_args=connect_args,
     )
 
 

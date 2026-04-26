@@ -148,7 +148,12 @@ export default function ProspectsPage() {
             {getInitials(row.first_name, row.last_name)}
           </div>
           <div className="min-w-0">
-            <p className="truncate font-semibold text-[var(--color-text)]">{`${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Unnamed prospect"}</p>
+            <p 
+              className="truncate font-semibold text-[var(--color-text)] cursor-pointer hover:underline"
+              onClick={() => alert("Prospect detail view coming soon")}
+            >
+              {`${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Unnamed prospect"}
+            </p>
             <p className="truncate text-sm text-[var(--color-text-muted)]">{row.title || "No title provided"}</p>
           </div>
         </div>

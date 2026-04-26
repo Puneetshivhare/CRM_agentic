@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import { Bell, HelpCircle, Search, User } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { Input } from "@/components/ui/Input";
@@ -18,24 +19,40 @@ export default function Navbar() {
               type="text"
               placeholder="Search prospects, companies, and workflows"
               className="pl-10"
+              onKeyDown={(e) => { if (e.key === "Enter") alert("Global search is coming soon"); }}
             />
           </div>
+        </div>
+        
+        {/* Mobile Navigation fallback */}
+        <div className="flex lg:hidden gap-4">
+          <Link href="/dashboard/prospects" className="text-sm font-medium text-[var(--color-text)] transition hover:text-[var(--color-accent)]">Prospects</Link>
+          <Link href="/dashboard/companies" className="text-sm font-medium text-[var(--color-text)] transition hover:text-[var(--color-accent)]">Companies</Link>
         </div>
       </div>
 
       <div className="flex items-center gap-1 sm:gap-2">
-        <button className="rounded-xl p-2 text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-subtle)] hover:text-[var(--color-text)]">
+        <button 
+          className="rounded-xl p-2 text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-subtle)] hover:text-[var(--color-text)]"
+          onClick={() => alert("Help documentation is coming soon")}
+        >
           <HelpCircle className="h-4 w-4" />
         </button>
 
-        <button className="group relative rounded-xl p-2 text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-subtle)] hover:text-[var(--color-text)]">
+        <button 
+          className="group relative rounded-xl p-2 text-[var(--color-text-muted)] transition hover:bg-[var(--color-surface-subtle)] hover:text-[var(--color-text)]"
+          onClick={() => alert("Notifications center is coming soon")}
+        >
           <Bell className="h-4 w-4" />
           <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full border border-white bg-[var(--color-danger)]" />
         </button>
 
         <div className="mx-1 hidden h-5 w-px bg-[var(--color-border)] sm:block" />
 
-        <button className="flex items-center gap-3 rounded-2xl border border-[var(--color-border)] bg-white px-2 py-1.5 transition hover:bg-[var(--color-surface-subtle)]">
+        <button 
+          className="flex items-center gap-3 rounded-2xl border border-[var(--color-border)] bg-white px-2 py-1.5 transition hover:bg-[var(--color-surface-subtle)]"
+          onClick={() => alert("Profile settings are coming soon")}
+        >
           <div className="hidden text-right sm:block">
             <p className="text-sm font-semibold leading-none text-[var(--color-text)]">{user?.email ?? "Workspace user"}</p>
             <p className="mt-1 text-xs text-[var(--color-text-subtle)]">Authenticated session</p>

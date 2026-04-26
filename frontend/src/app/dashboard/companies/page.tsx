@@ -101,7 +101,12 @@ export default function CompaniesPage() {
       sortValue: (row) => row.name,
       render: (row) => (
         <div className="min-w-0">
-          <p className="truncate font-semibold text-[var(--color-text)]">{row.name}</p>
+          <p 
+            className="truncate font-semibold text-[var(--color-text)] cursor-pointer hover:underline"
+            onClick={() => alert("Company detail view coming soon")}
+          >
+            {row.name}
+          </p>
           <p className="truncate text-sm text-[var(--color-text-muted)]">{row.domain || "No domain recorded"}</p>
         </div>
       ),

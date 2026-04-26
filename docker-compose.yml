@@ -149,6 +149,62 @@ services:
       retries: 3
       start_period: 15s
 
+  # ── Hermes Agent (Multi-tenant SaaS Agent) ──────────────────────────────────
+  hermes:
+    build:
+      context: ./hermes
+      dockerfile: Dockerfile
+    container_name: agentic-crm-hermes
+    restart: unless-stopped
+    environment:
+      # Core Hermes config
+      HERMES_MODE: saas
+      HERMES_TENANT_ISOLATION: strict
+      HERMES_DATA_DIR: /app/data
+      
+      # Guardrails - Restricted operations only
+      HERMES_ALLOWED_ACTIONS: web_search,web_crawl,prospect_research,company_enrichment,document_summarization,crm_query,mcp_invoke
+      HERMES_BLOCKED_ACTIONS: bash_execution,python_execution,file_system_write,system_commands,network_scanning,code_interpreter,terminal_access,ssh_connect
+      HERMES_ALLOWED_MCP_SERVERS: crm_backend,graphify,web_search
+      HERMES_BLOCKED_MCP_SERVERS: filesystem,terminal,bash,python,system
+      
+      # API Keys (passed through from backend)
+      BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      
+      # Database connection (shared with CRM)
+      DATABASE_URL: ${LOCAL_DATABASE_URL:-postgresql://crm_user:${DB_PASSWORD:-crm_password}@postgres:5432/agentic_crm}
+      
+      # Redis connection
+      REDIS_URL: redis://redis:6379/1  # Use DB 1 for Hermes isolation
+      
+      # CRM Integration
+      CRM_BACKEND_URL: http://backend:8000/api
+      CRM_API_KEY: ${HERMES_CRM_API_KEY:-hermes_default_key_change_in_production}
+      
+      # Graphify Integration
+      GRAPHIFY_ENABLED: "true"
+      GRAPHIFY_URL: http://backend:8000/api
+    ports:
+      - "8010:8000"  # Hermes API exposed on port 8010
+    volumes:
+      - hermes_data:/app/data
+      - hermes_skills:/app/skills
+      - hermes_tenants:/app/tenants
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - agentic-crm-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
   # ── Next.js Frontend ───────────────────────────────────────────────────────
   frontend:
     build:
@@ -181,3 +237,15 @@ volumes:
     name: agentic-crm-redis-data
   chroma_data:
     name: agentic-crm-chroma-data
+  hermes_data:
+    name: agentic-crm-hermes-data
+  hermes_skills:
+    name: agentic-crm-hermes-skills
+  hermes_tenants:
+    name: agentic-crm-hermes-tenants
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+networks:
+  agentic-crm-network:
+    name: agentic-crm-network
+    driver: bridge

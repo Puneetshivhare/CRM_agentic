@@ -33,7 +33,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       ref={containerRef}
       className="flex min-h-screen bg-[var(--color-page)] font-sans selection:bg-[var(--color-accent-soft)] selection:text-[var(--color-accent)]"
     >
-      <aside className="hidden w-72 flex-shrink-0 border-r border-[var(--color-border)] bg-white xl:block">
+      <aside className="hidden w-72 flex-shrink-0 border-r border-[var(--color-border)] bg-white lg:block">
         <Sidebar />
       </aside>
 

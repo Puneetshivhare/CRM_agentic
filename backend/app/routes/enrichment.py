@@ -321,7 +321,7 @@ async def trigger_search_enrichment(
                 limit=request.limit,
             )
             break
-        except RuntimeError as exc:
+        except Exception as exc:
             last_search_error = exc
             trace_logic(
                 logger,

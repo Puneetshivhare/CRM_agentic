@@ -11,6 +11,7 @@ Endpoints:
 """
 
 import logging
+from datetime import datetime
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -64,8 +65,8 @@ class CampaignResponse(CampaignBase):
     clicked_count: int
     replied_count: int
     conversion_rate: float
-    created_at: str
-    updated_at: str
+    created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True

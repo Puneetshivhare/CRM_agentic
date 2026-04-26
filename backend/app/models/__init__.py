@@ -13,6 +13,7 @@ from app.models.memory import MemoryStore, MemoryVector
 from app.models.campaign import Campaign
 from app.models.lead_score import LeadScore
 from app.models.rule_execution import RuleExecution
+from app.models.hermes_tenant import HermesTenant, HermesExecution, HermesSkill
 
 __all__ = [
     "AuthUser",
@@ -29,4 +30,7 @@ __all__ = [
     "Campaign",
     "LeadScore",
     "RuleExecution",
+    "HermesTenant",
+    "HermesExecution",
+    "HermesSkill",
 ]
